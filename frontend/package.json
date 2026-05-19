@@ -11,13 +11,11 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
-    "@types/three": "^0.184.1",
     "axios": "^1.16.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-dropzone": "^15.0.0",
-    "reactflow": "^11.11.4",
-    "three": "^0.184.0"
+    "reactflow": "^11.11.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

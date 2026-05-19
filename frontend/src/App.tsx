@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import axios from 'axios'
 import SimpleGraph from './SimpleGraph'
-import BrainGraph3D from './BrainGraph3D'
 import ObsidianGraph from './ObsidianGraph'
 import KanbanBoard from './KanbanBoard'
 import './App.css'
@@ -33,7 +32,7 @@ function App() {
   const [selectedPhase, setSelectedPhase] = useState('seed')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | '3d-brain' | 'obsidian' | 'kanban'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | 'obsidian' | 'kanban'>('list')
   const [apiError, setApiError] = useState<string | null>(null)
 
   const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
@@ -241,12 +240,6 @@ function App() {
                 2D Graph
               </button>
               <button 
-                className={viewMode === '3d-brain' ? 'active' : ''}
-                onClick={() => setViewMode('3d-brain')}
-              >
-                🧠 3D Brain
-              </button>
-              <button 
                 className={viewMode === 'obsidian' ? 'active' : ''}
                 onClick={() => setViewMode('obsidian')}
               >
@@ -281,8 +274,6 @@ function App() {
             )
           ) : viewMode === 'simple-graph' ? (
             <SimpleGraph apiUrl={`${API_BASE_URL}/graph`} />
-          ) : viewMode === '3d-brain' ? (
-            <BrainGraph3D apiUrl={`${API_BASE_URL}/graph`} />
           ) : viewMode === 'obsidian' ? (
             <ObsidianGraph />
           ) : (
