@@ -21,6 +21,7 @@ from src.api.status import router as status_router
 from src.api.graph import router as graph_router
 from src.api.kanban import router as kanban_router
 from src.api.semantic import router as semantic_router
+from src.api.agents import router as agents_router
 from src.services.gbrain_service import GBrainService
 from src.services.file_watcher import FileWatcher
 from src.services.kanban_sync import KanbanSyncService
@@ -66,6 +67,7 @@ app.include_router(status_router, prefix="/api/status", tags=["Status"])
 app.include_router(graph_router, prefix="/api/graph", tags=["Graph"])
 app.include_router(kanban_router, prefix="/api/kanban", tags=["Kanban"])
 app.include_router(semantic_router, prefix="/api/semantic", tags=["Semantic Analysis"])
+app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 
 # Static files for frontend
 frontend_path = Path(__file__).parent.parent / "frontend"
