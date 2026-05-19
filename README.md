@@ -267,4 +267,4 @@ Bei Problemen oder Fragen:
 - GBrain für das Wissenssystem
 - FastAPI für das Backend-Framework
 - React für das Frontend-Framework
-- React Flow für die Graph-Visualisierung
+- React Flow für die Graph-Visualisierung# ideen-ingest-channel-fixed
