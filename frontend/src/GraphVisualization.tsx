@@ -3,14 +3,12 @@ import ReactFlow, {
   MiniMap,
   Controls,
   Background,
+  BackgroundVariant,
   useNodesState,
   useEdgesState,
   addEdge,
-  Edge,
-  Node,
-  ConnectionMode,
 } from 'reactflow'
-import type { Connection } from 'reactflow'
+import type { Connection, Edge, Node } from 'reactflow'
 import 'reactflow/dist/style.css'
 
 interface GraphVisualizationProps {
@@ -19,8 +17,8 @@ interface GraphVisualizationProps {
 }
 
 export default function GraphVisualization({ ideas, onIdeaClick }: GraphVisualizationProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [, , onNodesChange] = useNodesState([])
+  const [, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedIdea, setSelectedIdea] = useState<any>(null)
 
   const onConnect = useCallback(
@@ -30,7 +28,7 @@ export default function GraphVisualization({ ideas, onIdeaClick }: GraphVisualiz
 
   // Convert ideas to nodes
   const ideaNodes = useMemo(() => {
-    return ideas.map((idea, index) => ({
+    return ideas.map((idea) => ({
       id: idea.slug,
       type: 'default',
       position: { 
@@ -75,7 +73,7 @@ export default function GraphVisualization({ ideas, onIdeaClick }: GraphVisualiz
     return edges
   }, [ideas])
 
-  const handleNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+  const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     const idea = node.data.idea
     setSelectedIdea(idea)
     if (onIdeaClick) {
@@ -102,7 +100,7 @@ export default function GraphVisualization({ ideas, onIdeaClick }: GraphVisualiz
         >
           <Controls />
           <MiniMap />
-          <Background variant="dots" gap={12} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
         </ReactFlow>
       </div>
 

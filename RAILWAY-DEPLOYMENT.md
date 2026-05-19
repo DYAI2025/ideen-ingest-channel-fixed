@@ -1,120 +1,59 @@
-# Railway Deployment Guide
+# Railway Deployment Guide (Backend + Frontend)
 
-## 🚀 Warum Railway?
+## Zielbild
+- **2 Railway Services** im selben Projekt:
+  - `ideen-backend` aus `backend/`
+  - `ideen-frontend` aus `frontend/`
+- Frontend ruft Backend über `VITE_API_URL` auf.
 
-- ✅ **Automatisches HTTPS** - keine SSL Zertifikate nötig
-- ✅ **Keine Port-Konflikte** - Railway handled alles
-- ✅ **Einfaches Scaling** - ein Klick für mehr Performance
-- ✅ **Built-in Datenbanken** - PostgreSQL, Redis, etc.
-- ✅ **Custom Domains** - vision.dyai.cloud einfach konfigurieren
-- ✅ **Git Integration** - deployt automatisch bei Code Changes
+## 1) Backend Service
+1. In Railway: **New Service** → GitHub Repo verbinden.
+2. **Root Directory** auf `backend` setzen.
+3. Railway nutzt `backend/railway.json`.
 
-## 📋 Voraussetzungen
+### Erwartete Runtime
+- Start Command: `python -m uvicorn src.main:app --host 0.0.0.0 --port $PORT`
+- Healthcheck: `/health`
 
-1. Railway Account: https://railway.app/
-2. Railway CLI installiert:
-```bash
-npm install -g @railway/cli
-```
+### Backend Variablen (Minimum)
+- `UPLOAD_DIR=/tmp/uploads`
+- `GBRAIN_COMMAND=gbrain`
+- optional: `GBRAIN_SOURCE=ideas`
 
-## 🔧 Setup Schritte
+> Hinweis: Auf Railway ist das Dateisystem ephemer. Für persistente Daten externen Storage (oder externen Speicher) nutzen.
 
-### 1. Railway CLI installieren
-```bash
-npm install -g @railway/cli
-```
+## 2) Frontend Service
+1. In Railway: **New Service** → gleiches Repo.
+2. **Root Directory** auf `frontend` setzen.
+3. Railway nutzt `frontend/railway.json`.
 
-### 2. Einloggen
+### Erwartete Runtime
+- Build: `npm ci && npm run build`
+- Start: `npm run preview -- --host 0.0.0.0 --port ${PORT:-3000}`
+- Healthcheck: `/`
+
+### Frontend Variablen (Pflicht)
+- `VITE_API_URL=https://<backend-service>.up.railway.app`
+
+## 3) CORS / API Routing
+Das Frontend verwendet in Production die URL aus `VITE_API_URL`.
+Wenn `VITE_API_URL` fehlt, fällt die App auf `/api` zurück (nur sinnvoll mit Reverse Proxy).
+
+## 4) Deployment Checkliste
+- Backend `/health` liefert HTTP 200.
+- Frontend lädt ohne Build-Fehler.
+- Browser-Netzwerk: Requests gehen an `https://<backend>/api/...`.
+- Backend Logs zeigen erfolgreiche Requests.
+
+## 5) CLI Alternative
 ```bash
 railway login
-```
 
-### 3. Backend deployen
-```bash
-cd /home/dyai/ideen-ingest-channel/backend
-railway init
+# Backend
+cd backend
 railway up
-```
 
-### 4. Frontend deployen
-```bash
-cd /home/dyai/ideen-ingest-channel/frontend  
-railway init
+# Frontend
+cd ../frontend
 railway up
-```
-
-### 5. Domain konfigurieren
-```bash
-# Backend Domain
-railway domain add vision.dyai.cloud
-
-# Frontend Domain (optional)
-railway domain add app.vision.dyai.cloud
-```
-
-## 🌐 Alternative: Railway UI nutzen
-
-Wenn du die CLI nicht nutzen willst:
-
-1. Gehe zu https://railway.app/
-2. "New Project" → "Deploy from GitHub repo"
-3. Wähle dein Repo (oder lege es an)
-4. Railway erkennt automatisch die Konfiguration
-5. Füge Custom Domains hinzu im Project Settings
-
-## 📁 Projekt Struktur für Railway
-
-```
-/home/dyai/ideen-ingest-channel/
-├── backend/
-│   ├── railway.json          # Railway Konfiguration
-│   ├── nixpacks.toml         # Build Konfiguration
-│   ├── main.py               # FastAPI App
-│   └── requirements.txt      # Python Dependencies
-├── frontend/
-│   ├── railway.json          # Railway Konfiguration  
-│   ├── nixpacks.toml         # Build Konfiguration
-│   ├── package.json          # Node Dependencies
-│   └── vite.config.ts        # Vite Konfiguration
-```
-
-## 🔧 Environment Variables
-
-In Railway Project Settings → Variables:
-
-**Backend:**
-```
-PORT=8001
-GBRAIN_PATH=/data/gbrain
-```
-
-**Frontend:**
-```
-VITE_API_URL=https://backend-deployment.railway.app
-```
-
-## 🎯 Nächste Schritte
-
-1. Railway CLI installieren: `npm install -g @railway/cli`
-2. Einloggen: `railway login`
-3. Backend deployen: `cd backend && railway up`
-4. Frontend deployen: `cd frontend && railway up`
-5. Domain konfigurieren: `railway domain add vision.dyai.cloud`
-
-## 💡 Vorteile gegenüber lokalem Setup
-
-- Keine Port-Konflikte (80, 8080, etc.)
-- Keine Firewall Konfiguration nötig
-- Kein SSH/Router Setup nötig
-- Automatisches HTTPS
-- Einfaches Scaling
-- Built-in Monitoring
-- Git-based Deployments
-
-## 🚀 Schnellstart
-
-Führe einfach aus:
-```bash
-cd /home/dyai/ideen-ingest-channel
-./setup-railway.sh
 ```
