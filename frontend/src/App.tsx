@@ -35,7 +35,7 @@ function App() {
   const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | '3d-brain' | 'obsidian'>('list')
   const [apiError, setApiError] = useState<string | null>(null)
 
-  const API_BASE_URL = '/api'
+  const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api'
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true)
@@ -63,7 +63,7 @@ function App() {
     }
     
     setLoading(false)
-  }, [selectedPhase])
+  }, [selectedPhase, API_BASE_URL])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
@@ -84,7 +84,7 @@ function App() {
       setIdeas(response.data.results || [])
     } catch (err) {
       console.error('Failed to load ideas:', err)
-      setApiError('Failed to connect to backend API. Please ensure the backend is running on port 8001.')
+      setApiError(`Failed to connect to backend API (${API_BASE_URL}).`)
     }
   }
 
@@ -140,7 +140,7 @@ function App() {
   useEffect(() => {
     loadIdeas()
     loadFiles()
-  }, [])
+  }, [selectedPhase])
 
   return (
     <div className="app">
@@ -270,9 +270,9 @@ function App() {
               <p className="no-ideas">No ideas found</p>
             )
           ) : viewMode === 'simple-graph' ? (
-            <SimpleGraph />
+            <SimpleGraph apiUrl={`${API_BASE_URL}/graph`} />
           ) : viewMode === '3d-brain' ? (
-            <BrainGraph3D />
+            <BrainGraph3D apiUrl={`${API_BASE_URL}/graph`} />
           ) : (
             <ObsidianGraph />
           )}

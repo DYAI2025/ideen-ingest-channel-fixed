@@ -70,7 +70,7 @@ export default function BrainGraph3D({ apiUrl = '/api/graph' }: BrainGraph3DProp
           setEdges(graphEdges)
           
           // 3D Scene initialisieren
-          cleanup = init3DScene(nodesWith3D, graphEdges)
+          cleanup = init3DScene(nodesWith3D, graphEdges) ?? null
         }
       } catch (err) {
         console.error('Failed to load graph data:', err)
@@ -92,7 +92,7 @@ export default function BrainGraph3D({ apiUrl = '/api/graph' }: BrainGraph3DProp
   const generateBrainPositions = (nodes: any[]): BrainNode[] => {
     const nodesWith3D: BrainNode[] = []
     
-    nodes.forEach((node, index) => {
+    nodes.forEach((node) => {
       // Sphärische Verteilung für Gehirn-Form
       const theta = Math.random() * Math.PI * 2
       const phi = Math.acos(2 * Math.random() - 1)
@@ -114,8 +114,8 @@ export default function BrainGraph3D({ apiUrl = '/api/graph' }: BrainGraph3DProp
     return nodesWith3D
   }
 
-  const init3DScene = (nodes: BrainNode[], edges: BrainEdge[]) => {
-    if (!containerRef.current) return
+  const init3DScene = (nodes: BrainNode[], edges: BrainEdge[]): (() => void) | null => {
+    if (!containerRef.current) return null
 
     // Scene setup
     const scene = new THREE.Scene()

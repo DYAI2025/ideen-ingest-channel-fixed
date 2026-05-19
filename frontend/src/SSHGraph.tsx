@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import ReactFlow, {
   MiniMap,
   Controls,
   Background,
+  BackgroundVariant,
   useNodesState,
   useEdgesState,
   addEdge,
-  Edge,
-  Node,
 } from 'reactflow'
-import type { Connection } from 'reactflow'
+import type { Connection, Edge, Node } from 'reactflow'
 import 'reactflow/dist/style.css'
 import axios from 'axios'
 
@@ -106,7 +105,7 @@ export default function SSHGraph({ apiUrl = '/api/graph', autoRefresh = true, re
     }
   }, [apiUrl, setNodes, setEdges])
 
-  const handleNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+  const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     setSelectedNode(node)
   }, [])
 
@@ -175,7 +174,7 @@ export default function SSHGraph({ apiUrl = '/api/graph', autoRefresh = true, re
                      phase === 'flower' ? '#f3e5f5' : '#ffebee'
             }}
           />
-          <Background variant="dots" gap={16} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
         </ReactFlow>
       </div>
 
