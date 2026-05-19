@@ -1,0 +1,21 @@
+# Caddy Konfiguration für Port 8080 (Port 80 ist belegt)
+
+# Main Domain - GBrain Frontend
+http://vision.dyai.cloud:8080 {
+    reverse_proxy localhost:5173
+}
+
+# Kanban Subdomain
+http://kanban.vision.dyai.cloud:8080 {
+    reverse_proxy localhost:3000
+}
+
+# Obsidian Graph Subdomain  
+http://graph.vision.dyai.cloud:8080 {
+    reverse_proxy localhost:3006
+}
+
+# Obsidian Kanban Subdomain
+http://obsidian.vision.dyai.cloud:8080 {
+    reverse_proxy localhost:3007
+}

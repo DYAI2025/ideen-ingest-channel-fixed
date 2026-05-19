@@ -1,0 +1,15 @@
+[Unit]
+Description=Ideen Ingest Channel Backend
+After=network.target
+
+[Service]
+Type=simple
+User=dyai
+WorkingDirectory=/home/dyai/ideen-ingest-channel/backend
+Environment="PATH=/home/dyai/ideen-ingest-channel/backend/venv/bin"
+ExecStart=/home/dyai/ideen-ingest-channel/backend/venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8001
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

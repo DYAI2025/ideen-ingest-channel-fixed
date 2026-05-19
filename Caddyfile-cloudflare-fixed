@@ -1,0 +1,22 @@
+# Caddy Konfiguration für Cloudflare Proxy
+# Cloudflare übernimmt SSL, Caddy nur HTTP
+
+# Main Domain - GBrain Frontend
+http://vision.dyai.cloud {
+    reverse_proxy localhost:5173
+}
+
+# Kanban Subdomain
+http://kanban.vision.dyai.cloud {
+    reverse_proxy localhost:3000
+}
+
+# Obsidian Graph Subdomain  
+http://graph.vision.dyai.cloud {
+    reverse_proxy localhost:3006
+}
+
+# Obsidian Kanban Subdomain
+http://obsidian.vision.dyai.cloud {
+    reverse_proxy localhost:3007
+}

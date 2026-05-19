@@ -1,0 +1,27 @@
+# Caddy Konfiguration für HTTP Test (ohne SSL)
+# Nur für Testzwecke - danach wieder auf SSL umstellen
+
+:80 {
+    # GBrain Frontend
+    handle_path /gb/* {
+        reverse_proxy localhost:5173
+    }
+    
+    # Kanban
+    handle_path /kanban/* {
+        reverse_proxy localhost:3000
+    }
+    
+    # Obsidian Graph
+    handle_path /graph/* {
+        reverse_proxy localhost:3006
+    }
+    
+    # Obsidian Kanban
+    handle_path /obsidian/* {
+        reverse_proxy localhost:3007
+    }
+    
+    # Default zu GBrain
+    reverse_proxy localhost:5173
+}

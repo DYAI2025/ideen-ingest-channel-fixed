@@ -1,0 +1,75 @@
+.obsidian-graph-container {
+  margin-top: 20px;
+  border: 1px solid #2d2d2d;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+}
+
+.obsidian-header {
+  background: rgba(45, 45, 45, 0.8);
+  padding: 20px;
+  border-bottom: 1px solid #3d3d3d;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.obsidian-header h3 {
+  margin: 0;
+  color: #7c3aed;
+  font-size: 18px;
+}
+
+.obsidian-stats {
+  display: flex;
+  gap: 20px;
+  color: #a0a0a0;
+  font-size: 14px;
+}
+
+.obsidian-stats span {
+  background: rgba(124, 58, 237, 0.2);
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+}
+
+.obsidian-info {
+  padding: 20px;
+  text-align: center;
+  color: #a0a0a0;
+}
+
+.obsidian-info p {
+  margin: 8px 0;
+}
+
+.open-button {
+  display: inline-block;
+  margin-top: 15px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: transform 0.2s;
+}
+
+.open-button:hover {
+  transform: scale(1.05);
+}
+
+.obsidian-loading,
+.obsidian-error {
+  padding: 40px;
+  text-align: center;
+  color: #a0a0a0;
+}
+
+.obsidian-error {
+  color: #ff6b6b;
+}
