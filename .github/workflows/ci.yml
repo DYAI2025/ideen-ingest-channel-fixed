@@ -1,0 +1,1183 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # Fire on every PR regardless of base branch. Without this, stacked
+  # PRs (whose base is another open PR's branch, not main) get only
+  # commitlint + scan + CodeRabbit — the full Go test job, web/web-e2e,
+  # and release-build are skipped, so a typo or break can land
+  # unnoticed and only surface when the stack tip retargets to main.
+  # See the Track A/B refactor train (#289 → #297 → #298 → #299) for
+  # the failure mode this filter caused.
+  pull_request:
+
+# Tighten the org default (`default_workflow_permissions: write`) — every
+# job in CI is read-only against the repo. The matrix legs that need to
+# upload-artifact / download-artifact rely on actions/upload-artifact's
+# self-managed temporary token and don't need write contents.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    # @wuphf/protocol is the moat — branded types, receipt schema, IPC envelopes,
+    # audit chain. The whole package is hand-rolled (no schema lib) precisely so
+    # we can audit the invariants. CI MUST run typecheck + biome + vitest on
+    # every PR or the invariants can regress silently. The `web` job below does
+    # NOT cover packages/protocol — its working-directory is `web/`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.13"
+      - name: Install workspace deps
+        # bun.lock lives at the repo root and covers every workspace package;
+        # `bun install --frozen-lockfile` from here resolves packages/protocol
+        # too. Doing the install per-package would split the lockfile.
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        working-directory: packages/protocol
+        run: bun run typecheck
+      - name: Biome (lint + format check)
+        working-directory: packages/protocol
+        run: bun run check
+      - name: Vitest (unit + property tests)
+        # Routed through the canonical wrapper so this matches what local
+        # contributors run — see scripts/test-protocol.sh.
+        run: bash scripts/test-protocol.sh
+      - name: Vitest coverage gate (ratchet)
+        # AGENTS.md rule #14: coverage is a one-way ratchet. Thresholds are
+        # in vitest.config.ts; lowering them is forbidden. NEW PRs must keep
+        # measured coverage at or above the declared floor.
+        working-directory: packages/protocol
+        run: bun run test:coverage
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        if: always()
+        with:
+          name: protocol-coverage
+          path: packages/protocol/coverage
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Vitest random-order smoke (catches order-dependent bugs)
+        # pytest-randomly equivalent. Same suite, shuffled file + test order
+        # with a fixed seed so a flake is deterministically reproducible.
+        # Cheap enough to run on every PR.
+        working-directory: packages/protocol
+        run: bun run test:shuffle
+      - name: Protocol invariant checks
+        # Custom protocol-grade invariants Biome cannot express:
+        # instanceof allowlist, single hashing entry point, no process.env
+        # in src/, demo imports from index only, every value export tested,
+        # no Date.now/Date.parse/performance.now (rule #13).
+        run: bash packages/protocol/scripts/check-invariants.sh
+      - name: Demo smoke (public-API ergonomics)
+        # The demo composes the public surface end-to-end (import from
+        # index.ts, use as a consumer would). Vitest covers per-module
+        # invariants; the demo catches regressions in how the modules
+        # COMPOSE — naming drift, missing exports, accidental API breaks
+        # at the index.ts boundary. Cheap (<1s).
+        run: bun run packages/protocol/scripts/demo.ts
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Cross-language wire-contract verifier (Go)
+        # Independent reference implementation of the audit-chain wire
+        # contract in Go. Loads testdata/audit-event-vectors.json and
+        # recomputes the canonical serialization + eventHash byte-for-byte.
+        # Catches a class of bug NO other test catches: TS writer + external
+        # reader drift (e.g., someone changes both the serializer AND the
+        # in-package golden vector together — Vitest still passes, this
+        # fails). The verifier file uses `//go:build ignore` so it is NOT
+        # part of the main Go build; only `go run` against the file runs it.
+        working-directory: packages/protocol/testdata
+        run: go run verifier-reference.go
+
+  broker:
+    # @wuphf/broker is the loopback HTTP/SSE/WebSocket boundary between
+    # the renderer and the broker process — DNS-rebinding guard, bearer
+    # auth, durable receipt store, cursor-paginated thread list. Local
+    # lefthook covers typecheck/test/invariants but a PR can still bypass
+    # them; this job is the CI floor. Path-gated to keep PRs that don't
+    # touch the broker fast. `packages/protocol` is in the gate because
+    # broker depends on it — a protocol type/wire change can break the
+    # broker compile while the broker tree looks "unchanged."
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.13"
+      - name: Detect broker changes
+        id: broker-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
+            changed="$(git ls-files packages/broker packages/protocol package.json bun.lock)"
+          else
+            changed="$(git diff --name-only "${BASE_SHA}"...HEAD -- packages/broker packages/protocol package.json bun.lock || true)"
+          fi
+
+          if [[ -n "${changed}" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip broker job when broker inputs are unchanged
+        if: ${{ steps.broker-changes.outputs.changed != 'true' }}
+        run: echo "No packages/broker, packages/protocol, root package.json, or bun.lock changes detected."
+      - name: Install workspace deps
+        if: ${{ steps.broker-changes.outputs.changed == 'true' }}
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        if: ${{ steps.broker-changes.outputs.changed == 'true' }}
+        working-directory: packages/broker
+        run: bun run typecheck
+      - name: Biome (lint + format check)
+        if: ${{ steps.broker-changes.outputs.changed == 'true' }}
+        working-directory: packages/broker
+        run: bun run check
+      - name: Vitest
+        if: ${{ steps.broker-changes.outputs.changed == 'true' }}
+        working-directory: packages/broker
+        run: bun run test
+      - name: Broker invariant checks
+        # No non-loopback bind constants, no electron imports, all
+        # @wuphf/protocol imports go through the package root, etc.
+        if: ${{ steps.broker-changes.outputs.changed == 'true' }}
+        working-directory: packages/broker
+        run: bun run check:invariants
+
+  llm-router:
+    # @wuphf/llm-router is the cost chokepoint for provider calls. It
+    # depends on broker cost-ledger internals and the protocol cost receipt
+    # shapes, so path-gate those inputs together with the package itself.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.13"
+      - name: Detect llm-router changes
+        id: llm-router-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
+            changed="$(git ls-files packages/llm-router packages/broker/src/cost-ledger packages/protocol/src/cost.ts packages/protocol/src/receipt-types.ts package.json bun.lock)"
+          else
+            changed="$(git diff --name-only "${BASE_SHA}"...HEAD -- packages/llm-router packages/broker/src/cost-ledger packages/protocol/src/cost.ts packages/protocol/src/receipt-types.ts package.json bun.lock || true)"
+          fi
+
+          if [[ -n "${changed}" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip llm-router job when llm-router inputs are unchanged
+        if: ${{ steps.llm-router-changes.outputs.changed != 'true' }}
+        run: echo "No packages/llm-router, cost-ledger, cost protocol, root package.json, or bun.lock changes detected."
+      - name: Install workspace deps
+        if: ${{ steps.llm-router-changes.outputs.changed == 'true' }}
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        if: ${{ steps.llm-router-changes.outputs.changed == 'true' }}
+        working-directory: packages/llm-router
+        run: bun run typecheck
+      - name: Biome (lint + format check)
+        if: ${{ steps.llm-router-changes.outputs.changed == 'true' }}
+        working-directory: packages/llm-router
+        run: bun run check
+      - name: Vitest
+        if: ${{ steps.llm-router-changes.outputs.changed == 'true' }}
+        working-directory: packages/llm-router
+        run: bun run test
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          # desktop job needs bun 1.3+ for `bun audit --audit-level` to honor the
+          # threshold flag correctly (1.2.16 fails on moderate even when level=high).
+          # Rest of repo can bump in a follow-up.
+          bun-version: "1.3.13"
+      - name: Detect desktop changes
+        id: desktop-changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
+            changed="$(git ls-files apps/desktop package.json bun.lock)"
+          else
+            changed="$(git diff --name-only "${BASE_SHA}"...HEAD -- apps/desktop package.json bun.lock || true)"
+          fi
+
+          if [[ -n "${changed}" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip desktop job when desktop inputs are unchanged
+        if: ${{ steps.desktop-changes.outputs.changed != 'true' }}
+        run: echo "No apps/desktop, root package.json, or bun.lock changes detected."
+      - name: Install workspace deps
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run typecheck
+      - name: Lint
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run lint
+      - name: Test
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run test
+      - name: Coverage
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run test:coverage
+      - name: Vulnerability audit
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        # Scope to apps/desktop's dependency closure only. Auditing from the
+        # repo root pulls in every workspace (installer-stub's electron 33,
+        # electron-builder's transitive tar, etc.) which are tracked under
+        # apps/installer-stub's own gates and dependabot group, not desktop's.
+        working-directory: apps/desktop
+        run: bun audit --audit-level high
+      - name: IPC allowlist
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run check:ipc-allowlist
+      - name: Structural invariants
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run check:invariants
+      - name: Build
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run build
+      - name: Build-output externalization invariants
+        # Audits `out/{main,preload}/**.js` for two regressions a green
+        # build + green tests cannot catch:
+        # 1. workspace packages (`@wuphf/*`) leaking into the build as
+        #    runtime externals — their `exports` map to raw `./src/*.ts`,
+        #    which Node 22 strip-only TS would crash on at runtime
+        #    (e.g. parameter properties on `SqliteReceiptStore`'s private
+        #    constructor).
+        # 2. `better-sqlite3` getting inlined — its `bindings()` loader
+        #    needs the JS wrapper at its npm location to find the `.node`
+        #    sibling.
+        if: ${{ steps.desktop-changes.outputs.changed == 'true' }}
+        working-directory: apps/desktop
+        run: bun run check:build-externals
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      # Pin to full SHA: third-party action, runs on pull_request from forks
+      # and can read any GITHUB_TOKEN the workflow exposes. A @v2 re-tag
+      # would execute with CI privileges. Same SHA is reused in the web-e2e
+      # job below — keep them in sync.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.13"
+      - name: Install and typecheck
+        id: web-typecheck
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+      - name: Run coverage
+        id: web-coverage
+        working-directory: web
+        if: ${{ steps.web-typecheck.outcome == 'success' }}
+        continue-on-error: true
+        run: bun run test:coverage
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        if: always()
+        with:
+          name: web-coverage
+          path: web/coverage
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Build web dist
+        working-directory: web
+        if: ${{ always() && steps.web-typecheck.outcome == 'success' }}
+        run: bun run build
+      - name: Bundle-size budget
+        if: ${{ always() && steps.web-typecheck.outcome == 'success' }}
+        # Forward-only ratchet against accidental bundle bloat. Warn at
+        # 950 KB, fail at 1200 KB on the JS bundle total. To raise the
+        # ceiling intentionally, edit constants in scripts/check-bundle-size.sh
+        # in the same PR. See CONTRIBUTING.md "no perf degradations" rule.
+        run: bash scripts/check-bundle-size.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        if: ${{ always() && steps.web-typecheck.outcome == 'success' }}
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
+          if-no-files-found: ignore
+      - name: Fail web job if coverage failed
+        if: ${{ always() && steps.web-typecheck.outcome == 'success' && steps.web-coverage.outcome == 'failure' }}
+        run: exit 1
+
+  lint:
+    runs-on: ubuntu-latest
+    # Single source of truth for govulncheck binary location. `go install`
+    # writes to $GOBIN if set (else $GOPATH/bin), so pinning GOBIN here
+    # keeps the cache path, install destination, and PATH lookup below
+    # locked to one literal — eliminates the silent-cache-miss class of
+    # bug if a future setup-go release shifts the default GOPATH.
+    env:
+      GOBIN: ${{ github.workspace }}/.gobin
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          # The file-size ratchet compares the current allowlist to the PR
+          # base. Keep enough history for `git merge-base HEAD origin/<base>`.
+          fetch-depth: 0
+      - name: File-size ratchet self-test
+        run: bash scripts/check-file-size-self-test.sh
+      - name: File-size budget (CONTRIBUTING.md)
+        # Warn at 800 LOC, fail at 1500 LOC unless allowlisted in
+        # scripts/file-size-allowlist.txt. The allowlist is forward-only
+        # (see CONTRIBUTING.md, docs/CODE-QUALITY.md, ADR-0001): new
+        # entries and growth of current offenders fail against the PR base.
+        # Skips generated files, tests, and documented fixture/vendor dirs.
+        run: bash scripts/check-file-size.sh
+      - name: Install ripgrep
+        # The Wails boundary check uses `rg --pcre2`. ripgrep is bundled in
+        # ubuntu-latest images today, but we install it explicitly so the
+        # check survives runner-image changes that drop preinstalled tools.
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+      - name: Wails import boundary self-test
+        run: bash scripts/check-wails-boundary-self-test.sh
+      - name: Wails import boundary
+        run: bash scripts/check-wails-boundary.sh
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Check VERSION sentinel
+        # internal/buildinfo/VERSION is the embedded fallback when no release
+        # ldflag is set. It MUST stay literally "dev" so contributor / source
+        # builds resolve to a dev sentinel and IsDevVersion suppresses the
+        # upgrade banner. Issue #350: a hand-edited "0.0.7.1" passed as a
+        # real semver and produced a downgrade prompt against npm latest.
+        #
+        # The two private package.json files (root + web/) must stay at
+        # "0.0.0" — they are not published, but the same hand-edit pattern
+        # that staled the VERSION file also staled both of these. Pinning
+        # to "0.0.0" matches npm/package.json's release-overwritten default
+        # and makes "anything else" a clear lint failure.
+        run: |
+          contents=$(tr -d '[:space:]' < internal/buildinfo/VERSION)
+          if [ "$contents" != "dev" ]; then
+            echo "internal/buildinfo/VERSION must be the literal 'dev', got: $contents" >&2
+            echo "Real release versions are injected via goreleaser's ldflag at build time." >&2
+            exit 1
+          fi
+          for pkg in package.json web/package.json; do
+            v=$(node -p "require('./$pkg').version")
+            if [ "$v" != "0.0.0" ]; then
+              echo "$pkg version must be \"0.0.0\" (private package, no published version), got: $v" >&2
+              echo "Hand-edited semver here was the source of issue #350; keep it as a sentinel." >&2
+              exit 1
+            fi
+          done
+      - name: Check gofmt
+        # Belt-and-braces net against the golangci-lint `gofmt` formatter (see
+        # .golangci.yml). `-s` matches that linter's simplify=true default so
+        # the two agree on "formatted". The empty-file guard keeps `gofmt -l`
+        # from reading stdin and hanging on a sparse checkout.
+        run: |
+          files=$(git ls-files '*.go')
+          if [ -z "$files" ]; then
+            exit 0
+          fi
+          unformatted=$(gofmt -s -l $files)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt reports the following files need formatting:"
+            echo "$unformatted"
+            echo
+            echo "Run: gofmt -s -w \$(git ls-files '*.go')"
+            exit 1
+          fi
+      # Pin to full SHA: third-party action, runs on pull_request from forks
+      # and can read any GITHUB_TOKEN the workflow exposes. A @v9 re-tag
+      # would execute with CI privileges.
+      - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # ratchet:golangci/golangci-lint-action@v9.2.0
+        with:
+          version: v2.11.4
+          args: --timeout=5m
+      - name: Cache govulncheck binary
+        # The version below is pinned, so the compiled binary at
+        # $GOBIN/govulncheck is reusable across every CI run that doesn't
+        # bump the govulncheck version. Saves ~10-15s of `go install`
+        # (download + compile) per run on warm cache.
+        id: cache-govulncheck
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # ratchet:actions/cache@v5.0.5
+        with:
+          path: ${{ env.GOBIN }}/govulncheck
+          key: govulncheck-${{ runner.os }}-v1.1.4
+      - name: Install govulncheck
+        if: steps.cache-govulncheck.outputs.cache-hit != 'true'
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+      - name: Run govulncheck
+        # Catches reachable CVEs in the Go stdlib + modules. Flags us when we
+        # fall behind on a Go minor bump without having to wait for a CVE
+        # advisory to make noise. Pinned to an explicit version so a new
+        # govulncheck release cannot flip pass/fail on the same commit.
+        run: |
+          export PATH="${{ env.GOBIN }}:$PATH"
+          govulncheck ./...
+      - name: Reject /tmp/ hardcodes in production Go
+        # Windows guard: /tmp doesn't exist there, so anything bound to a
+        # literal /tmp path silently writes to C:\tmp at the drive root (or
+        # fails outright). Production code must use os.TempDir() — see the
+        # runtime-aware helpers in internal/brokeraddr/addr.go for the
+        # pattern. _test.go files are exempt (testdata fixtures often live
+        # at known paths).
+        run: |
+          set -euo pipefail
+          # The grep below excludes test files via :(exclude). The remaining
+          # `internal/brokeraddr/addr.go` hits are the runtime-gated /tmp
+          # branches that are only taken on non-Windows; those are correct.
+          bad=$(git grep -nE '"/tmp/' -- '*.go' \
+                 ':(exclude)*_test.go' \
+                 ':(exclude)internal/brokeraddr/addr.go' || true)
+          if [ -n "$bad" ]; then
+            echo "$bad" >&2
+            echo "" >&2
+            echo "Found /tmp hardcodes in production Go. Use os.TempDir()." >&2
+            echo "See internal/brokeraddr/addr.go for the runtime.GOOS pattern." >&2
+            exit 1
+          fi
+      - name: No new time.Sleep in tests
+        # Forward-only enforcement of CONTRIBUTING.md's "no time.Sleep
+        # in tests" rule. Existing offenders are grandfathered (would
+        # require ~80 fixes in one PR); diff-only lets the rule lock
+        # now while paced PRs migrate the existing call sites to a
+        # manualClock fixture.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/check-no-new-sleeps-in-tests.sh
+      - name: Complexity ignore baseline
+        # Keep Biome complexity suppressions explicit during the migration:
+        # stale entries are reported, new ignores must update the baseline.
+        run: bash scripts/check-complexity-baseline.sh
+      - name: Reject unix-only exec.Command shapes outside tmux/tui paths
+        # Windows guard: bash/sh/chmod/ln/mkfifo/killall don't exist there.
+        # Code that needs them must be in a _unix.go file with a build tag,
+        # or guarded with runtime.GOOS at the call site. tmux is allowed
+        # because UsesTmuxRuntime() gates it; if you're calling tmux from a
+        # web-mode path, the regression is real and this should fail.
+        #
+        # Uses ripgrep with -U (multiline) + -P (PCRE) so call shapes split
+        # across lines — exec.Command(\n    "bash",\n    "-c", ...) — are
+        # caught. A previous line-oriented grep missed those. ripgrep is
+        # preinstalled on ubuntu-latest.
+        #
+        # The pattern matches both bare names ("sh", "bash", ...) AND the
+        # absolute-path variants ("/bin/sh", "/usr/bin/sh", ...). A bare-
+        # name-only pattern missed `exec.CommandContext(ctx, "/bin/sh", ...)`
+        # in internal/agent/tools.go, which compiles fine but fails at
+        # CreateProcess on Windows.
+        run: |
+          set -euo pipefail
+          bad=$(rg -nUP \
+                  --type-add='go:*.go' --type=go \
+                  --glob='!*_test.go' \
+                  'exec\.(Command|LookPath|CommandContext)\([^,)]*,?\s*"(/(?:usr/)?(?:local/)?(?:s)?bin/)?(bash|sh|chmod|ln|mkfifo|killall|pkill)"' \
+                  internal/ cmd/ || true)
+          # Allow _unix.go / _darwin.go / _linux.go files (compiled only on
+          # those platforms by Go's build constraints).
+          bad=$(echo "$bad" | grep -vE '_(unix|linux|darwin)\.go:' || true)
+          if [ -n "$bad" ]; then
+            echo "$bad" >&2
+            echo "" >&2
+            echo "Found unix-only exec.Command in cross-platform Go. Either:" >&2
+            echo "  1. Move the code into a _unix.go file with //go:build !windows, or" >&2
+            echo "  2. Guard the call site with runtime.GOOS." >&2
+            exit 1
+          fi
+
+  # Single test job. We previously fanned out one matrix leg per Go package
+  # (28 legs at peak) for nicer per-package red x's, but each leg paid
+  # ~12-15s of checkout + setup-go + download-artifact overhead for ~20-50s
+  # of actual test work — ~14 runner-minutes per CI run on overhead alone.
+  # `go test ./...` runs packages in parallel within one process up to
+  # GOMAXPROCS, so wall clock is bounded by the long-pole package
+  # (`internal/team`, ~2.5m with -race) regardless of fan-out. Collapsing
+  # gives ~80% compute reduction at no wall-clock cost. teammcp opts out
+  # of -race until its test-isolation cleanup lands; everything else gets
+  # the race detector. -timeout 15m is generous headroom over the ~3m
+  # observed locally (race instrumentation 2-3x's wall-clock).
+  go-test:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      # Build wuphf-test-bin so internal/workspaces.TestRuntimeHomeIsolation
+      # (the Phase-0 isolation leak test) actually runs instead of skipping.
+      # The test spawns this binary with WUPHF_RUNTIME_HOME=<tmpdir> and
+      # asserts no writes leak to $HOME/.wuphf/. Without this build step, the
+      # regression safety net is dormant in CI because wuphfTestBinary()
+      # falls back to looking for ./wuphf-test-bin at repo root.
+      # grep-tag: PHASE0_HOMEDIR_AUDIT
+      - name: Build wuphf-test-bin (for Phase-0 isolation leak test)
+        run: go build -o wuphf-test-bin ./cmd/wuphf
+      # `set -euo pipefail` + the empty-package guard close a fail-open
+      # path: bash does NOT propagate failures inside `$(...)`, so a
+      # transient `go list` error or a regex tweak that drops every match
+      # would otherwise degrade the step to `go test -race -timeout 15m`
+      # against the cwd package only — green CI, every subpackage silently
+      # skipped. `pipefail` surfaces the inner failure; the guard catches
+      # an empty match list.
+      #
+      # On failure: the matrix used to give one red x per failing package
+      # in the PR checks list; collapsed, both invocations swallow per-
+      # package status into a single red x. `tee` to a log file + a
+      # `grep '^FAIL'` summary at the end of the step reclaims the per-
+      # package signal in the step's own log without bringing back the
+      # matrix overhead. Logs are uploaded as an artifact on failure for
+      # offline triage.
+      - name: Tests with race detector (everything except teammcp)
+        run: |
+          set -euo pipefail
+          pkgs=$(go list ./... | grep -vE '/internal/teammcp($|/)')
+          if [ -z "$pkgs" ]; then
+            echo "no packages matched — refusing to run an empty go test suite" >&2
+            exit 1
+          fi
+          set +e
+          go test -race -timeout 15m $pkgs 2>&1 | tee go-test-race.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Failing packages (race suite)"
+            grep -E '^(FAIL|--- FAIL)' go-test-race.log || echo "(no FAIL lines parsed; see full log above)"
+            echo "::endgroup::"
+            exit "$status"
+          fi
+      - name: Tests without race (internal/teammcp)
+        run: |
+          set -euo pipefail
+          pkgs=$(go list ./... | grep -E '/internal/teammcp($|/)')
+          if [ -z "$pkgs" ]; then
+            echo "no packages matched — refusing to run an empty go test suite" >&2
+            exit 1
+          fi
+          set +e
+          go test -timeout 15m $pkgs 2>&1 | tee go-test-teammcp.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Failing packages (teammcp suite)"
+            grep -E '^(FAIL|--- FAIL)' go-test-teammcp.log || echo "(no FAIL lines parsed; see full log above)"
+            echo "::endgroup::"
+            exit "$status"
+          fi
+      - name: Upload go test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: go-test-logs
+          path: |
+            go-test-race.log
+            go-test-teammcp.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Cross-platform compile gate. Catches the class of regression where a
+  # `golang.org/x/sys/unix` import or a stray `//go:build !windows` constraint
+  # slips into the main path and breaks Windows/macOS without anyone noticing
+  # until release time. `release-build` exists but only verifies what
+  # goreleaser's `goos:` happens to enumerate; if a future PR drops `windows`
+  # from .goreleaser.yml, this is the gate that catches it independently.
+  go-cross-build:
+    needs: web
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: windows, goarch: amd64}
+          - {goos: windows, goarch: arm64}
+          - {goos: darwin, goarch: arm64}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        # `./...` (not just ./cmd/wuphf) so an internal/ package picking up a
+        # unix-only import blocks the merge before someone hits it on Windows.
+        run: go build ./...
+
+  # Keep a standalone vet job so config drift (a new vet check landing in
+  # a Go minor bump, or an unknown //go:build tag) surfaces with its own
+  # red x instead of being mixed into a test leg. golangci-lint runs vet
+  # too but only what its govet linter enables.
+  vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+
+  build:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      - run: go build -o wuphf ./cmd/wuphf
+      - name: Smoke test binary
+        run: |
+          ./wuphf --version
+          ./wuphf --help-all > /dev/null
+
+  vhs:
+    runs-on: ubuntu-latest
+    env:
+      VHS_VERSION: "v0.11.0"
+      TTYD_VERSION: "1.7.7"
+      TTYD_SHA256: "8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          # VHS tracks newer Go minors than go.mod pins; use stable so
+          # `go install vhs` isn't blocked by GOTOOLCHAIN=local (Go is
+          # forward-compatible for the wuphf build in this job).
+          go-version: stable
+      - name: Cache VHS binary
+        id: cache-vhs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # ratchet:actions/cache@v5.0.5
+        with:
+          path: ~/go/bin/vhs
+          key: vhs-${{ runner.os }}-${{ env.VHS_VERSION }}
+      - name: Install VHS
+        if: steps.cache-vhs.outputs.cache-hit != 'true'
+        run: go install github.com/charmbracelet/vhs@${{ env.VHS_VERSION }}
+      - name: Cache ttyd download
+        id: cache-ttyd
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # ratchet:actions/cache@v5.0.5
+        with:
+          path: /tmp/ttyd.x86_64
+          key: ttyd-${{ runner.os }}-${{ env.TTYD_VERSION }}-${{ env.TTYD_SHA256 }}
+      - name: Download ttyd
+        if: steps.cache-ttyd.outputs.cache-hit != 'true'
+        run: curl -fLo /tmp/ttyd.x86_64 https://github.com/tsl0922/ttyd/releases/download/${{ env.TTYD_VERSION }}/ttyd.x86_64
+      - name: Verify ttyd integrity
+        # Verify both on cache-miss (just downloaded) and cache-hit (guard
+        # against restored corruption or a ttyd release re-tag).
+        run: echo "${{ env.TTYD_SHA256 }}  /tmp/ttyd.x86_64" | sha256sum -c -
+      - name: Install ttyd
+        run: sudo install /tmp/ttyd.x86_64 /usr/local/bin/ttyd
+      - name: Install ffmpeg
+        # Pin to full SHA: third-party action runs `sudo apt-get`, so a re-tag
+        # of @v1 would execute with elevated privileges on the runner.
+        uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # ratchet:awalsh128/cache-apt-pkgs-action@v1.6.0
+        with:
+          # libblas3 is a transitive runtime dep of ffmpeg on ubuntu-latest.
+          # Listing it explicitly guarantees it lands in the apt cache payload
+          # alongside ffmpeg, so warm restores do not surface
+          # `ffmpeg: error while loading shared libraries: libblas.so.3`.
+          packages: ffmpeg libblas3
+          # NOTE: `version` is a cache-bust token, NOT an ffmpeg version pin.
+          # Bump it to force a fresh apt-get install (e.g., for a security
+          # advisory, or when the dependency list above changes). `packages`
+          # has no version constraint, so warm runs reuse whatever .debs the
+          # cold run captured.
+          version: "2"
+      - name: Build wuphf
+        run: go build -o wuphf ./cmd/wuphf
+      - name: Run VHS regression checks
+        run: |
+          export PATH="$PWD:$PATH"
+          bash testdata/vhs/check.sh
+      - name: Upload drift artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: vhs-drift
+          path: testdata/vhs/*.actual
+          retention-days: 7
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - name: Run shellcheck
+        run: |
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh testdata/vhs/*.sh
+
+  web-e2e:
+    # Playwright smoke against the real web UI. Guards the class of regression
+    # we kept shipping (React render crashes that only surface in a browser
+    # — e.g. "No QueryClient set", Minified React error #31 on first agent
+    # click) by booting wuphf, loading /, and walking the happy path.
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Pin to full SHA: third-party action, runs on every PR. A @v2 re-tag
+      # would exec with CI privileges — see the awalsh128 pin above for the
+      # same pattern.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Build wuphf
+        run: go build -o wuphf ./cmd/wuphf
+      - name: Install e2e deps
+        working-directory: web/e2e
+        run: bun install --frozen-lockfile
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # ratchet:actions/cache@v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          # Key on the resolved @playwright/test version via bun.lock so a
+          # bump invalidates.
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/e2e/bun.lock') }}
+      - name: Install Playwright chromium
+        working-directory: web/e2e
+        # --with-deps installs the OS-level shared libs chromium needs on
+        # ubuntu-latest even when the cached browser binary is restored.
+        run: bunx playwright install --with-deps chromium
+      - name: Install claude CLI stub
+        # wuphf's PreflightWeb hard-requires `claude` on PATH (see
+        # internal/team/launcher.go — PreflightWeb). These smoke tests don't
+        # send messages to agents, so a no-op stub that LookPath can find is
+        # enough to get past preflight and boot the web UI.
+        run: |
+          sudo tee /usr/local/bin/claude >/dev/null <<'SH'
+          #!/bin/sh
+          # Smoke-test stub. Present only to satisfy exec.LookPath("claude").
+          echo "stub claude $*" >&2
+          exit 0
+          SH
+          sudo chmod +x /usr/local/bin/claude
+      # The suite splits into two phases because App.tsx routes on
+      # onboardingComplete: fresh install → <Wizard>, seeded → <Shell>. One
+      # wuphf instance can only be in one state, so we boot twice.
+      #
+      # Phase 1: fresh install (wizard.spec.ts). No onboarded.json.
+      # Phase 2: seeded      (shell suite — smoke, chat, slash-commands, dm,
+      #                       mentions, interview). Write onboarded.json first.
+      # `</dev/null` on both boots prevents isPiped() from yanking wuphf into
+      # scanner mode.
+      - name: Start wuphf (fresh install) for wizard tests
+        # Run from /tmp — NOT the checkout root. `resolveTemplatesRepoRoot`
+        # walks up from cwd looking for templates/operations/, and would
+        # find it in the checkout, masking the "no repo on disk" path that
+        # `npx wuphf` / `curl | bash` users actually take. Running from
+        # /tmp forces the blueprint loader to go through the embedded FS
+        # wired in templates_embed.go, which is exactly the regression
+        # path the wizard.spec.ts blueprint-picker test guards.
+        run: |
+          rm -f "$HOME/.wuphf/onboarded.json"
+          wuphf_bin="$PWD/wuphf"
+          run_dir="$(mktemp -d)"
+          cd "$run_dir"
+          "$wuphf_bin" --no-open --broker-port 7890 --web-port 7891 --no-nex </dev/null > "$GITHUB_WORKSPACE/wuphf-wizard.log" 2>&1 &
+          echo $! > "$GITHUB_WORKSPACE/wuphf-wizard.pid"
+          # /onboarding/state is the authoritative readiness signal (the
+          # static index.html can 200 before the broker is fully wired).
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:7891/onboarding/state -o /dev/null; then
+              echo "wuphf ready (wizard) after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "wuphf failed to become ready (wizard)" >&2
+          cat "$GITHUB_WORKSPACE/wuphf-wizard.log" >&2
+          exit 1
+      - name: Run Playwright wizard smoke
+        working-directory: web/e2e
+        env:
+          WUPHF_E2E_BASE_URL: http://localhost:7891
+        run: bunx playwright test tests/wizard.spec.ts tests/wizard-error-states.spec.ts
+      - name: Stop wuphf (wizard phase)
+        if: always()
+        run: |
+          if [ -f wuphf-wizard.pid ]; then
+            kill "$(cat wuphf-wizard.pid)" 2>/dev/null || true
+          fi
+          # Wait for port 7891 to free up before Phase 2 tries to bind it.
+          for _ in $(seq 1 10); do
+            if ! (exec 3<>/dev/tcp/127.0.0.1/7891) 2>/dev/null; then break; fi
+            sleep 1
+          done
+      - name: Seed onboarding state + start wuphf for shell tests
+        run: |
+          mkdir -p "$HOME/.wuphf"
+          cat > "$HOME/.wuphf/onboarded.json" <<'JSON'
+          {"version":1,"completed_at":"2026-01-01T00:00:00Z","company_name":"e2e-ci"}
+          JSON
+          ./wuphf --no-open --broker-port 7890 --web-port 7891 --no-nex </dev/null > wuphf.log 2>&1 &
+          echo $! > wuphf.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:7891/onboarding/state -o /dev/null; then
+              echo "wuphf ready (shell) after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "wuphf failed to become ready (shell)" >&2
+          cat wuphf.log >&2
+          exit 1
+      - name: Run Playwright shell suite
+        working-directory: web/e2e
+        env:
+          WUPHF_E2E_BASE_URL: http://localhost:7891
+        run: |
+          bunx playwright test \
+            tests/smoke.spec.ts \
+            tests/app-routes.spec.ts \
+            tests/route-matrix.spec.ts \
+            tests/route-regressions.spec.ts \
+            tests/sidebar-scroll.spec.ts \
+            tests/chat.spec.ts \
+            tests/slash-commands.spec.ts \
+            tests/dm.spec.ts \
+            tests/mentions.spec.ts \
+            tests/interview.spec.ts
+      - name: Stop wuphf (shell phase)
+        if: always()
+        run: |
+          if [ -f wuphf.pid ]; then
+            kill "$(cat wuphf.pid)" 2>/dev/null || true
+          fi
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: web/e2e/playwright-report
+          retention-days: 7
+      - name: Upload wuphf logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: wuphf-e2e-logs
+          path: |
+            wuphf.log
+            wuphf-wizard.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  release-build:
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # ratchet:goreleaser/goreleaser-action@v7
+        with:
+          version: latest
+          args: release --snapshot --clean --skip=publish
+      - name: Verify Windows artifacts shipped
+        # Belt-and-braces against a future .goreleaser.yml edit that drops
+        # `windows` from goos: or removes the format_overrides .zip block.
+        # goreleaser would silently produce only Unix tarballs and CI would
+        # still pass the install.sh smoke (which targets linux/amd64).
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            zip=$(ls dist/wuphf_*_windows_${arch}.zip 2>/dev/null || true)
+            if [ -z "$zip" ]; then
+              echo "missing windows/${arch} .zip artifact in dist/" >&2
+              echo "did .goreleaser.yml lose 'windows' from goos: or drop the format_overrides .zip block?" >&2
+              exit 1
+            fi
+          done
+          # Confirm both archives actually contain wuphf.exe (catches a
+          # goreleaser binary `name` regression that would ship `wuphf`
+          # without the .exe suffix on Windows). Both arches are checked
+          # because a per-arch override could regress one without the other.
+          for arch in amd64 arm64; do
+            zip=$(ls dist/wuphf_*_windows_${arch}.zip | head -1)
+            unzip -l "$zip" | grep -q 'wuphf\.exe' || {
+              echo "windows/${arch} zip does not contain wuphf.exe — goreleaser binary name regressed?" >&2
+              unzip -l "$zip" >&2
+              exit 1
+            }
+          done
+      - name: Smoke-test install.sh against snapshot (URL override)
+        # Cheap sanity path: feed install.sh a file:// tarball directly so
+        # download/extract/chmod/--version all run against the fresh snapshot.
+        # This SKIPS the redirect-parsing resolver — see next step for that.
+        run: |
+          set -euo pipefail
+          tarball="$(ls dist/wuphf_*_linux_amd64.tar.gz | head -1)"
+          if [ -z "$tarball" ]; then
+            echo "no snapshot tarball found in dist/" >&2
+            exit 1
+          fi
+          # install.sh falls back to $HOME/.local/bin if /usr/local/bin isn't
+          # writable — ensure either location is on PATH.
+          export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+          WUPHF_INSTALL_URL_OVERRIDE="file://$PWD/$tarball" bash scripts/install.sh
+          command -v wuphf
+          wuphf --version
+      - name: Smoke-test install.sh against real resolver (mock GitHub)
+        # Guards the v0.8.1 regression: the 404 shipped to users lived in the
+        # redirect-parsing + archive-URL construction (install.sh:39-48). The
+        # URL-override step above bypasses that code entirely, so we also
+        # stand up a local HTTP server that emulates GitHub's behavior:
+        #   GET /releases/latest -> 302 /releases/tag/<tag>
+        #   GET /releases/download/<tag>/<archive> -> the snapshot tarball
+        # and point install.sh at it via WUPHF_INSTALL_REPO_BASE_URL.
+        run: |
+          set -euo pipefail
+          tarball="$(ls dist/wuphf_*_linux_amd64.tar.gz | head -1)"
+          archive="$(basename "$tarball")"
+          version="${archive#wuphf_}"
+          version="${version%_linux_amd64.tar.gz}"
+          tag="v${version}"
+
+          serve="$PWD/ci-mock-releases"
+          rm -rf "$serve"
+          mkdir -p "$serve/releases/download/${tag}"
+          cp "$tarball" "$serve/releases/download/${tag}/${archive}"
+
+          # The resolver parses VERSION from curl's url_effective by taking
+          # the last '/'-delimited field. Real GitHub redirects to
+          # /releases/tag/<tag> (no trailing slash). Python's default directory
+          # handler would 301 to '/releases/tag/<tag>/' and strip VERSION to
+          # empty — so handle the tag endpoint explicitly.
+          python3 - "$tag" "$serve" <<'PY' &
+          import http.server, socketserver, sys, os
+          tag, root = sys.argv[1], sys.argv[2]
+          os.chdir(root)
+          tag_path = f"/releases/tag/{tag}"
+          class H(http.server.SimpleHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path == "/releases/latest":
+                      self.send_response(302)
+                      self.send_header("Location", tag_path)
+                      self.end_headers()
+                      return
+                  if self.path == tag_path:
+                      self.send_response(200)
+                      self.send_header("Content-Type", "text/html")
+                      self.end_headers()
+                      self.wfile.write(b"<html></html>")
+                      return
+                  super().do_GET()
+              def log_message(self, *a, **k):
+                  pass
+          with socketserver.TCPServer(("127.0.0.1", 7457), H) as srv:
+              srv.serve_forever()
+          PY
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+          for _ in $(seq 1 10); do
+            if curl -sf "http://127.0.0.1:7457/releases/tag/${tag}/" -o /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          # Wipe the binary the prior step installed so we're actually
+          # re-exercising install.sh end-to-end.
+          rm -f "$HOME/.local/bin/wuphf"
+          sudo rm -f /usr/local/bin/wuphf || true
+          export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+          WUPHF_INSTALL_REPO_BASE_URL="http://127.0.0.1:7457" bash scripts/install.sh
+          command -v wuphf
+          wuphf --version
+
+  # Pure-function tests for the npm wrapper's `process.platform === "win32"`
+  # branches (archiveExtension, binaryFilename, archiveName, etc). These
+  # branches are only exercised in the wild on actual Windows machines, so
+  # without a unit test a refactor that drops `.zip`/`.exe` handling regresses
+  # silently. Runs in <2s; no real network or filesystem.
+  npm-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # ratchet:oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: "1.3.13"
+      - name: Run npm wrapper tests
+        working-directory: npm
+        run: bun test
+
+  # Real Windows runner smoke. Catches behavioral regressions that compile
+  # cleanly but exit silently on first launch — the class of bug the
+  # isPiped() fall-through fix (commit 9efaa3b3) addresses. windows-latest
+  # bills at 2x Linux minutes; ~3 min wall clock = ~$0.008/PR. Worth it
+  # because the regression vectors here are invisible to Linux/Mac CI.
+  windows-smoke:
+    needs: web
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Build wuphf.exe
+        env:
+          CGO_ENABLED: "0"
+        run: go build -o wuphf.exe ./cmd/wuphf
+      - name: Help/version smoke
+        shell: pwsh
+        run: |
+          ./wuphf.exe --version
+          ./wuphf.exe --help | Out-Null
+          ./wuphf.exe --help-all | Out-Null
+      - name: Empty-pipe-stdin must reach the web UI (regression guard for 9efaa3b3)
+        shell: pwsh
+        # Reproduces the SSH/Start-Process/scheduled-task case where stdin is
+        # a closed pipe with no data. Before the fix, isPiped() returned true,
+        # the dispatch loop drained zero lines, and wuphf exited silently with
+        # no output and no listener. We assert that the web UI binds within
+        # 30s — if it doesn't, the regression is back.
+        run: |
+          $port = 17891
+          # Use a fresh port so we don't collide with anything on the runner.
+          $logPath = "$env:RUNNER_TEMP\wuphf-smoke.log"
+          $proc = Start-Process -FilePath ./wuphf.exe `
+            -ArgumentList "--no-open","--no-nex","--web-port",$port,"--broker-port","17890" `
+            -RedirectStandardOutput $logPath `
+            -RedirectStandardError "$env:RUNNER_TEMP\wuphf-smoke.err" `
+            -PassThru -NoNewWindow
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                $r = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/onboarding/state" -TimeoutSec 2
+                if ($r.StatusCode -eq 200) { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) {
+              Write-Host "wuphf.exe never bound :$port — isPiped() regression?"
+              if (Test-Path $logPath) { Write-Host "--- stdout ---"; Get-Content $logPath }
+              if (Test-Path "$env:RUNNER_TEMP\wuphf-smoke.err") { Write-Host "--- stderr ---"; Get-Content "$env:RUNNER_TEMP\wuphf-smoke.err" }
+              exit 1
+            }
+            Write-Host "OK: wuphf.exe bound :$port within $i seconds"
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+      - name: Token file lives under TEMP (regression guard for brokeraddr Windows path)
+        shell: pwsh
+        # If anyone reverts internal/brokeraddr/addr.go to a const "/tmp/..."
+        # this smoke catches it: the broker writes its token file on first
+        # boot, and that file MUST be under %TEMP%, not under a literal
+        # C:\tmp\ path that Windows would silently create at the drive root.
+        run: |
+          # Boot wuphf briefly so it writes the token file.
+          $port = 17892
+          $proc = Start-Process -FilePath ./wuphf.exe `
+            -ArgumentList "--no-open","--no-nex","--web-port",$port,"--broker-port","17893" `
+            -PassThru -NoNewWindow `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\wuphf-tok.log" `
+            -RedirectStandardError "$env:RUNNER_TEMP\wuphf-tok.err"
+          try {
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              try {
+                Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/onboarding/state" -TimeoutSec 2 | Out-Null
+                break
+              } catch {}
+            }
+            $tempToken = Join-Path $env:TEMP "wuphf-broker-token-17893"
+            $tmpToken  = "C:\tmp\wuphf-broker-token-17893"
+            if (Test-Path $tmpToken) {
+              Write-Error "regression: token file written to C:\tmp\ on Windows — internal/brokeraddr/addr.go reverted to a /tmp hardcode?"
+              exit 1
+            }
+            # Retry briefly: the broker writes its token file shortly after
+            # ServeWebUI returns, so a tight loop is enough. If it never lands
+            # under %TEMP% the regression guard must hard-fail — passing on
+            # absence would let a /tmp regression sneak through.
+            $found = $false
+            for ($j = 0; $j -lt 10; $j++) {
+              if (Test-Path $tempToken) { $found = $true; break }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $found) {
+              Write-Error "token file missing at expected TEMP path: $tempToken — internal/brokeraddr/addr.go regression?"
+              exit 1
+            }
+            Write-Host "OK: token file at $tempToken"
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }

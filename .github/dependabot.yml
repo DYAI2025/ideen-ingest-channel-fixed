@@ -1,0 +1,155 @@
+version: 2
+# Grant Dependabot read access to private GitHub repos in the org.
+# Required because workflows under .github/workflows/ consume reusable
+# workflows from the private nex-crm/.github repo (see `uses:
+# nex-crm/.github/...` refs). Without this, every weekly Dependabot
+# run fails closed with `git_dependencies_not_reachable`.
+#
+# `DEPENDABOT_PRIVATE_REPO_TOKEN` is provisioned at the org level —
+# see nex-crm/docs#37 for the original rollout + the gh command to
+# create it.
+registries:
+  nex-crm-github:
+    type: git
+    url: https://github.com
+    username: x-access-token
+    password: ${{secrets.DEPENDABOT_PRIVATE_REPO_TOKEN}}
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    registries:
+      - nex-crm-github
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 21
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 21
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Root: dev-only tooling (secretlint, commitlint, @secretlint rule presets).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 21
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Web frontend (React/vite). Uses bun.lock locally; dependabot reads
+  # package.json directly. Without this entry, biome / vitest / vite /
+  # tailwind bumps land manually only.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 21
+    groups:
+      web-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(web)"
+      include: "scope"
+
+  # Desktop Electron shell. Keep Electron, electron-vite, Vite, and Vitest
+  # grouped because runtime and build-tool peer ranges move together.
+  - package-ecosystem: "npm"
+    directory: "/apps/desktop"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 21
+    groups:
+      desktop-electron-stack:
+        patterns:
+          - "electron"
+          - "electron-vite"
+          - "vite"
+          - "vitest"
+          - "@vitest/coverage-v8"
+          - "typescript"
+          - "@types/node"
+    commit-message:
+      prefix: "chore(desktop)"
+      include: "scope"
+
+  # Playwright e2e harness. Self-contained workspace under web/e2e/ so
+  # @playwright/test bumps don't entangle the main web build.
+  - package-ecosystem: "npm"
+    directory: "/web/e2e"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 21
+    groups:
+      e2e-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(e2e)"
+      include: "scope"
+
+  # npm wrapper that ships `npx wuphf` to the npm registry. Bumps here
+  # affect the public install surface — keep its own group so they get
+  # individual review, not lumped with the dev-tooling root group.
+  - package-ecosystem: "npm"
+    directory: "/npm"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 21
+    groups:
+      npm-wrapper-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(npm)"
+      include: "scope"
+
+  # Installer stub release stack. This package uses bun.lock locally, but the
+  # three Electron release packages need one review/test cycle because signing,
+  # notarization, and updater metadata compatibility can shift together.
+  - package-ecosystem: "npm"
+    directory: "/apps/installer-stub"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 21
+    groups:
+      installer-electron-stack:
+        patterns:
+          - "electron"
+          - "electron-builder"
+          - "electron-updater"
+    commit-message:
+      prefix: "chore(installer)"
+      include: "scope"

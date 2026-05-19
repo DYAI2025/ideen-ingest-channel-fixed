@@ -1,0 +1,48 @@
+> /tmp/wuphf-vhs --help
+WUPHF vdev — the terminal office Ryan Howard always wanted.
+
+Usage:
+  wuphf              Launch multi-agent team (web UI on :7891)
+  wuphf --legacy-tui  Launch with legacy tmux TUI instead
+  wuphf init         Install the latest CLI and save setup defaults
+  wuphf upgrade      Check npm for a newer version and show the changelog
+  wuphf shred        Burn the workspace down and reopen onboarding
+  wuphf import --from legacy  Import from a running external orchestrator (auto-detect)
+  wuphf log          Show what your agents actually did (task receipts)
+  wuphf share        Invite one team member over a private network
+  wuphf memory migrate --from {nex,gbrain}  Port legacy memory into the team wiki
+  wuphf workspace ...  Manage multiple isolated WUPHF workspaces
+  wuphf skills publish <slug-or-path> --to <hub>    Publish a team skill to a public hub
+  wuphf skills install <name> --from <hub>  Pull a public skill into the team wiki
+  wuphf --cmd <cmd>  Run a command non-interactively
+
+Flags:
+  --1o1
+        Launch a direct 1:1 session with a single agent (default ceo)
+  --api-key
+        API key for authentication
+  --blueprint
+        Operation blueprint ID for this run
+  --broker-port
+        Port for the local broker (default 7890)
+  --cmd
+        Run a command non-interactively
+  --collab
+        Start in collaborative mode (all agents see all messages)
+  --format
+        Output format (text, json) (default "text")
+  --from-scratch
+        Start without a saved blueprint and synthesize the first operation from the directive
+  --legacy-tui
+        Launch with legacy tmux TUI instead of the web UI (deprecated; slated for removal)
+  --memory-backend
+        Memory backend for organizational context (nex, gbrain, none)
+  --no-nex
+        Disable Nex completely for this run
+  --no-open
+        Don't open browser automatically on launch
+  --opus-ceo
+        Upgrade CEO agent from Sonnet to Opus
+  --pack
+        Operation blueprint ID (legacy pack alias supported)
+  --provider
