@@ -11,6 +11,7 @@ export default defineConfig({
       'kanban.vision.dyai.cloud',
       'graph.vision.dyai.cloud',
       'obsidian.vision.dyai.cloud',
+      'gbrain.dyai.cloud',
       '.dyai.cloud',
       '.railway.app'
     ],
@@ -23,6 +24,10 @@ export default defineConfig({
   },
   preview: {
     host: true,
-    allowedHosts: true
+    allowedHosts: [
+      'gbrain.dyai.cloud',
+      '.dyai.cloud',
+      '.railway.app'
+    ]
   }
 })
