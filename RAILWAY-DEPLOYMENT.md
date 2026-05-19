@@ -20,7 +20,7 @@
 - `GBRAIN_COMMAND=gbrain`
 - optional: `GBRAIN_SOURCE=ideas`
 
-> Hinweis: Auf Railway ist das Dateisystem ephemer. Für persistente Daten externes Storage nutzen.
+> Hinweis: Auf Railway ist das Dateisystem ephemer. Für persistente Daten externen Storage (oder externen Speicher) nutzen.
 
 ## 2) Frontend Service
 1. In Railway: **New Service** → gleiches Repo.
