@@ -62,6 +62,11 @@ function KanbanBoard() {
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
+  // Use Railway backend URL in production, localhost in development
+  const API_BASE_URL = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+    ? `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}/api`
+    : 'https://insightful-curiosity-production-5e41.up.railway.app/api'
+
   // Load kanban data on mount
   useEffect(() => {
     loadKanbanData()
@@ -70,7 +75,7 @@ function KanbanBoard() {
   const loadKanbanData = async () => {
     try {
       setLoading(true)
-      const response = await axios.get('/api/kanban/board')
+      const response = await axios.get(`${API_BASE_URL}/kanban/board`)
       if (response.data.status === 'success') {
         // Transform backend data to frontend format
         const transformedColumns = response.data.board.columns.map((col: any) => ({
@@ -116,7 +121,7 @@ function KanbanBoard() {
         }))
       }
       
-      await axios.post('/api/kanban/board', boardData)
+      await axios.post(`${API_BASE_URL}/kanban/board`, boardData)
     } catch (error) {
       console.error('Failed to save kanban data:', error)
     }
@@ -178,7 +183,7 @@ function KanbanBoard() {
         updated_at: new Date().toISOString()
       }
 
-      await axios.post('/api/kanban/task', newTask)
+      await axios.post(`${API_BASE_URL}/kanban/task`, newTask)
       loadKanbanData()
     } catch (error) {
       console.error('Failed to add task:', error)
@@ -187,7 +192,7 @@ function KanbanBoard() {
 
   const deleteTask = async (taskId: string) => {
     try {
-      await axios.delete(`/api/kanban/task/${taskId}`)
+      await axios.delete(`${API_BASE_URL}/kanban/task/${taskId}`)
       loadKanbanData()
     } catch (error) {
       console.error('Failed to delete task:', error)
@@ -197,7 +202,7 @@ function KanbanBoard() {
   const syncGBrainToKanban = async () => {
     try {
       setSyncing(true)
-      const response = await axios.post('/api/sync/kanban')
+      const response = await axios.post(`${API_BASE_URL}/sync/kanban`)
       if (response.data.status === 'success') {
         loadKanbanData()
         alert('✅ GBrain → Kanban sync completed!')
