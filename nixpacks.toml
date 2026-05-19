@@ -1,0 +1,11 @@
+# Monorepo configuration for Railway
+# This file tells Railway to treat backend/ and frontend/ as separate services
+
+[phases.setup]
+nixPkgs = ["python311", "nodejs_20"]
+
+[phases.build]
+cmds = ["echo 'Monorepo root - services defined in subdirectories'"]
+
+[start]
+cmd = "echo 'Monorepo root - no service to start here'"
