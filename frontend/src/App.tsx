@@ -39,7 +39,7 @@ function App() {
   const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
   const API_BASE_URL = configuredApiUrl
     ? (configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`)
-    : '/api'
+    : 'https://insightful-curiosity-production-5e41.up.railway.app/api'
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true)
