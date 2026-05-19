@@ -35,7 +35,10 @@ function App() {
   const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | '3d-brain' | 'obsidian'>('list')
   const [apiError, setApiError] = useState<string | null>(null)
 
-  const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api'
+  const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+  const API_BASE_URL = configuredApiUrl
+    ? (configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`)
+    : '/api'
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true)
