@@ -19,8 +19,10 @@ from src.api.ingest import router as ingest_router
 from src.api.ideas import router as ideas_router
 from src.api.status import router as status_router
 from src.api.graph import router as graph_router
+from src.api.kanban import router as kanban_router
 from src.services.gbrain_service import GBrainService
 from src.services.file_watcher import FileWatcher
+from src.services.kanban_sync import KanbanSyncService
 from src.core.config import settings
 
 app = FastAPI(
@@ -46,11 +48,22 @@ async def health_check():
     """Health check endpoint for Railway deployment"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
+# GBrain → Kanban sync endpoint
+@app.post("/api/sync/kanban")
+async def sync_gbrain_to_kanban():
+    """Manually trigger GBrain → Kanban sync"""
+    try:
+        await kanban_sync_service.manual_sync()
+        return {"status": "success", "message": "GBrain → Kanban sync completed"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # Include routers
 app.include_router(ingest_router, prefix="/api/ingest", tags=["Ingest"])
 app.include_router(ideas_router, prefix="/api/ideas", tags=["Ideas"])
 app.include_router(status_router, prefix="/api/status", tags=["Status"])
 app.include_router(graph_router, prefix="/api/graph", tags=["Graph"])
+app.include_router(kanban_router, prefix="/api/kanban", tags=["Kanban"])
 
 # Static files for frontend
 frontend_path = Path(__file__).parent.parent / "frontend"
@@ -63,6 +76,7 @@ else:
 # Services
 gbrain_service = GBrainService()
 file_watcher = FileWatcher()
+kanban_sync_service = KanbanSyncService()
 
 @app.on_event("startup")
 async def startup_event():

@@ -4,6 +4,7 @@ import axios from 'axios'
 import SimpleGraph from './SimpleGraph'
 import BrainGraph3D from './BrainGraph3D'
 import ObsidianGraph from './ObsidianGraph'
+import KanbanBoard from './KanbanBoard'
 import './App.css'
 
 interface FileUploadResult {
@@ -32,7 +33,7 @@ function App() {
   const [selectedPhase, setSelectedPhase] = useState('seed')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | '3d-brain' | 'obsidian'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | '3d-brain' | 'obsidian' | 'kanban'>('list')
   const [apiError, setApiError] = useState<string | null>(null)
 
   const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
@@ -251,6 +252,12 @@ function App() {
               >
                 📝 Obsidian
               </button>
+              <button 
+                className={viewMode === 'kanban' ? 'active' : ''}
+                onClick={() => setViewMode('kanban')}
+              >
+                📋 Kanban
+              </button>
             </div>
           </div>
 
@@ -276,8 +283,10 @@ function App() {
             <SimpleGraph apiUrl={`${API_BASE_URL}/graph`} />
           ) : viewMode === '3d-brain' ? (
             <BrainGraph3D apiUrl={`${API_BASE_URL}/graph`} />
-          ) : (
+          ) : viewMode === 'obsidian' ? (
             <ObsidianGraph />
+          ) : (
+            <KanbanBoard />
           )}
         </section>
       </main>
