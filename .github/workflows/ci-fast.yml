@@ -4,7 +4,7 @@ name: ci-fast
 # See docs/IMPLEMENTATION_PLAN_TDD.md §2.4 for the split.
 #
 # Action versions pinned to known-good major:
-# - astral-sh/setup-uv@v8  (latest at 2026-05; verified via gh api repos/astral-sh/setup-uv/releases/latest)
+# - astral-sh/setup-uv@v8.1.0  (latest at 2026-05; verified via gh api repos/astral-sh/setup-uv/releases/latest)
 # - actions/checkout@v4
 # - actions/setup-node@v4
 # - actions/upload-artifact@v4
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
       - name: backend lint (black --check)
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
       - name: backend unit
@@ -98,7 +98,7 @@ jobs:
       DATABASE_URL: postgresql://ideen:ideen@localhost:5433/ideen_test
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
       - name: integration tests
@@ -111,7 +111,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           enable-cache: true
       - name: openapi snapshot drift check
@@ -138,7 +138,7 @@ jobs:
         with:
           name: backend-coverage
           path: backend/
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
       - name: diff-cover gate
         working-directory: backend
         run: |
