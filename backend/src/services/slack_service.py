@@ -61,9 +61,7 @@ class SlackSignatureVerifier:
         # slack_sdk stubs aren't reachable from the type-checker's interpreter.
         is_valid = cast(
             bool,
-            self._upstream.is_valid(
-                body=body, timestamp=timestamp, signature=signature
-            ),
+            self._upstream.is_valid(body=body, timestamp=timestamp, signature=signature),
         )
         if not is_valid:
             logger.warning("Signature verification failed")
@@ -169,9 +167,7 @@ def init_slack_service(signing_secret: Optional[str] = None) -> "SlackSignatureV
     """
     global signature_verifier
     secret = (
-        signing_secret
-        or settings.slack_signing_secret
-        or os.environ.get("SLACK_SIGNING_SECRET")
+        signing_secret or settings.slack_signing_secret or os.environ.get("SLACK_SIGNING_SECRET")
     )
     if not secret:
         if os.environ.get("ALLOW_INSECURE_SLACK_FOR_TESTS") == "1":

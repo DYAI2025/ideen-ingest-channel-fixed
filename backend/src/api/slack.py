@@ -54,9 +54,7 @@ async def slack_events_endpoint(
                 status_code=401,
                 detail="Missing X-Slack-Signature or X-Slack-Request-Timestamp",
             )
-        if not verifier.verify_signature(
-            x_slack_signature, x_slack_request_timestamp, body_str
-        ):
+        if not verifier.verify_signature(x_slack_signature, x_slack_request_timestamp, body_str):
             logger.warning("Signature verification failed")
             raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
@@ -109,6 +107,4 @@ async def slack_events_endpoint(
         # response body which leaked internal details to unauthenticated
         # callers.
         logger.exception("Internal error processing Slack webhook")
-        return JSONResponse(
-            content={"error": "Internal error", "status": "error"}, status_code=500
-        )
+        return JSONResponse(content={"error": "Internal error", "status": "error"}, status_code=500)

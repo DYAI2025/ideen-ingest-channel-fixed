@@ -29,9 +29,7 @@ def test_missing_signature_header__rejected_401():
         },
         # NOTE: no X-Slack-Signature, no X-Slack-Request-Timestamp
     )
-    assert response.status_code == 401, (
-        f"expected 401, got {response.status_code}: {response.text}"
-    )
+    assert response.status_code == 401, f"expected 401, got {response.status_code}: {response.text}"
 
 
 def test_url_verification_without_signature__rejected_401():
@@ -82,12 +80,10 @@ def test_internal_error_response_does_not_leak_exception(monkeypatch):
         },
     )
 
-    assert response.status_code == 500, (
-        f"expected 500, got {response.status_code}: {response.text}"
-    )
-    assert "SECRET INTERNAL DETAIL" not in response.text, (
-        f"response leaked exception detail: {response.text}"
-    )
+    assert response.status_code == 500, f"expected 500, got {response.status_code}: {response.text}"
+    assert (
+        "SECRET INTERNAL DETAIL" not in response.text
+    ), f"response leaked exception detail: {response.text}"
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +145,7 @@ def test_invalid_signature__rejected_401():
     client = TestClient(app)
     response = client.post("/api/slack/events", content=body, headers=headers)
 
-    assert response.status_code == 401, (
-        f"expected 401, got {response.status_code}: {response.text}"
-    )
+    assert response.status_code == 401, f"expected 401, got {response.status_code}: {response.text}"
 
 
 def test_malformed_signature_prefix__rejected_401():
@@ -175,9 +169,7 @@ def test_malformed_signature_prefix__rejected_401():
     client = TestClient(app)
     response = client.post("/api/slack/events", content=body, headers=headers)
 
-    assert response.status_code == 401, (
-        f"expected 401, got {response.status_code}: {response.text}"
-    )
+    assert response.status_code == 401, f"expected 401, got {response.status_code}: {response.text}"
 
 
 def test_wrong_length_signature__rejected_401():
@@ -200,9 +192,7 @@ def test_wrong_length_signature__rejected_401():
     client = TestClient(app)
     response = client.post("/api/slack/events", content=body, headers=headers)
 
-    assert response.status_code == 401, (
-        f"expected 401, got {response.status_code}: {response.text}"
-    )
+    assert response.status_code == 401, f"expected 401, got {response.status_code}: {response.text}"
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +218,9 @@ def test_timestamp_at_299s__accepted():
     boundary."""
     init_slack_service("test_secret")
     # Sanity: the freeze_time value lines up with the constant we use.
-    assert int(time.time()) == _NOW_TS, (
-        f"freezegun mismatch: time.time()={time.time()} _NOW_TS={_NOW_TS}"
-    )
+    assert (
+        int(time.time()) == _NOW_TS
+    ), f"freezegun mismatch: time.time()={time.time()} _NOW_TS={_NOW_TS}"
 
     timestamp = str(_NOW_TS - 299)
     body = b'{"type":"event_callback","event_id":"EvT299","event":{"type":"message","text":"hi"}}'
@@ -247,9 +237,9 @@ def test_timestamp_at_299s__accepted():
         },
     )
 
-    assert response.status_code == 200, (
-        f"expected 200 at -299s (in-window), got {response.status_code}: {response.text}"
-    )
+    assert (
+        response.status_code == 200
+    ), f"expected 200 at -299s (in-window), got {response.status_code}: {response.text}"
 
 
 @freeze_time(_FROZEN_NOW)
@@ -278,9 +268,9 @@ def test_timestamp_at_300s__rejected():
         },
     )
 
-    assert response.status_code == 401, (
-        f"expected 401 at -300s (out-of-window), got {response.status_code}: {response.text}"
-    )
+    assert (
+        response.status_code == 401
+    ), f"expected 401 at -300s (out-of-window), got {response.status_code}: {response.text}"
 
 
 @freeze_time(_FROZEN_NOW)
@@ -302,9 +292,9 @@ def test_timestamp_at_301s__rejected():
         },
     )
 
-    assert response.status_code == 401, (
-        f"expected 401 at -301s, got {response.status_code}: {response.text}"
-    )
+    assert (
+        response.status_code == 401
+    ), f"expected 401 at -301s, got {response.status_code}: {response.text}"
 
 
 def test_malformed_json_with_invalid_signature__rejected_before_parse():
@@ -332,8 +322,7 @@ def test_malformed_json_with_invalid_signature__rejected_before_parse():
 
     # MUST be 401 (sig gate fired) — not 400 (JSONDecodeError) and not 500.
     assert response.status_code == 401, (
-        f"expected 401 (sig gate before parse), got {response.status_code}: "
-        f"{response.text}"
+        f"expected 401 (sig gate before parse), got {response.status_code}: " f"{response.text}"
     )
 
 
@@ -345,7 +334,9 @@ def test_timestamp_future_skew_600s__rejected():
     +600s skew falls out of the window."""
     init_slack_service("test_secret")
     timestamp = str(_NOW_TS + 600)
-    body = b'{"type":"event_callback","event_id":"EvTFuture","event":{"type":"message","text":"hi"}}'
+    body = (
+        b'{"type":"event_callback","event_id":"EvTFuture","event":{"type":"message","text":"hi"}}'
+    )
     sig = _sign("test_secret", timestamp, body)
 
     client = TestClient(app)
@@ -359,6 +350,6 @@ def test_timestamp_future_skew_600s__rejected():
         },
     )
 
-    assert response.status_code == 401, (
-        f"expected 401 at +600s future skew, got {response.status_code}: {response.text}"
-    )
+    assert (
+        response.status_code == 401
+    ), f"expected 401 at +600s future skew, got {response.status_code}: {response.text}"

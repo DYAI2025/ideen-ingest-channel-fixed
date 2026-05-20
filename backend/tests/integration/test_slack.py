@@ -59,12 +59,12 @@ def test_no_init_call__handler_still_protected(monkeypatch):
         # NOTE: no signature headers
     )
 
-    assert response.status_code != 200, (
-        f"handler returned 200 without init+signature — bypass! body={response.text}"
-    )
-    assert response.status_code == 401, (
-        f"expected 401 (missing headers), got {response.status_code}: {response.text}"
-    )
+    assert (
+        response.status_code != 200
+    ), f"handler returned 200 without init+signature — bypass! body={response.text}"
+    assert (
+        response.status_code == 401
+    ), f"expected 401 (missing headers), got {response.status_code}: {response.text}"
 
 
 def test_event_callback_with_valid_signature__200_and_processes():
