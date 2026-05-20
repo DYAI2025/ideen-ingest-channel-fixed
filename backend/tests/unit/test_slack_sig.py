@@ -1,10 +1,12 @@
 """
-Slack signature verification unit tests (C5, C6, C8 + B2 real-HMAC gate).
+Slack signature verification unit tests (C5, C6, C8, B2 real-HMAC gate,
+B3 timestamp-window edge cases).
 """
 
 import time
 
 from fastapi.testclient import TestClient
+from freezegun import freeze_time
 
 from src.main import app
 from src.services.slack_service import init_slack_service
@@ -200,4 +202,133 @@ def test_wrong_length_signature__rejected_401():
 
     assert response.status_code == 401, (
         f"expected 401, got {response.status_code}: {response.text}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# B3 / I9 — timestamp window edge cases.
+# The implementation in SlackSignatureVerifier._is_timestamp_valid uses
+# ``abs(current_time - request_time) < 300`` — strict less-than, so 299
+# is in-window and 300 is out. We pin "now" with freezegun so the test is
+# deterministic regardless of CI clock skew.
+# ---------------------------------------------------------------------------
+
+
+_FROZEN_NOW = "2026-05-20 12:00:00"
+# The freeze_time literal corresponds to this UNIX timestamp (UTC). We
+# compute it once so each test can derive boundary offsets explicitly.
+_NOW_TS = 1779278400  # = int(datetime(2026,5,20,12,0,0,tzinfo=timezone.utc).timestamp())
+
+
+@freeze_time(_FROZEN_NOW)
+def test_timestamp_at_299s__accepted():
+    """B3: timestamp 299 seconds in the past is INSIDE the window
+    (abs(diff) < 300 ⇒ True). Positive boundary case — expected to land
+    GREEN on first run because the impl already implements the correct
+    boundary."""
+    init_slack_service("test_secret")
+    # Sanity: the freeze_time value lines up with the constant we use.
+    assert int(time.time()) == _NOW_TS, (
+        f"freezegun mismatch: time.time()={time.time()} _NOW_TS={_NOW_TS}"
+    )
+
+    timestamp = str(_NOW_TS - 299)
+    body = b'{"type":"event_callback","event_id":"EvT299","event":{"type":"message","text":"hi"}}'
+    sig = _sign("test_secret", timestamp, body)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=body,
+        headers={
+            "X-Slack-Signature": sig,
+            "X-Slack-Request-Timestamp": timestamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 200, (
+        f"expected 200 at -299s (in-window), got {response.status_code}: {response.text}"
+    )
+
+
+@freeze_time(_FROZEN_NOW)
+def test_timestamp_at_300s__rejected():
+    """B3: timestamp exactly 300s in the past is OUTSIDE the window
+    (abs(diff) < 300 ⇒ False at diff==300). Strict-less-than boundary.
+
+    Halt-on-defect: if this comes back GREEN as a 401 immediately on
+    first run, fine — that means the impl already uses ``< 300``. If
+    instead the handler returns 200, the impl uses ``<= 300`` and the
+    test surfaces a window-extension defect.
+    """
+    init_slack_service("test_secret")
+    timestamp = str(_NOW_TS - 300)
+    body = b'{"type":"event_callback","event_id":"EvT300","event":{"type":"message","text":"hi"}}'
+    sig = _sign("test_secret", timestamp, body)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=body,
+        headers={
+            "X-Slack-Signature": sig,
+            "X-Slack-Request-Timestamp": timestamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 401, (
+        f"expected 401 at -300s (out-of-window), got {response.status_code}: {response.text}"
+    )
+
+
+@freeze_time(_FROZEN_NOW)
+def test_timestamp_at_301s__rejected():
+    """B3: timestamp 301s in the past is comfortably outside the window."""
+    init_slack_service("test_secret")
+    timestamp = str(_NOW_TS - 301)
+    body = b'{"type":"event_callback","event_id":"EvT301","event":{"type":"message","text":"hi"}}'
+    sig = _sign("test_secret", timestamp, body)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=body,
+        headers={
+            "X-Slack-Signature": sig,
+            "X-Slack-Request-Timestamp": timestamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 401, (
+        f"expected 401 at -301s, got {response.status_code}: {response.text}"
+    )
+
+
+@freeze_time(_FROZEN_NOW)
+def test_timestamp_future_skew_600s__rejected():
+    """B3: a timestamp 600s in the FUTURE represents either malicious
+    clock-skew or a broken sender; either way it must be rejected.
+    ``abs(current - request) < 300`` covers both directions, so a
+    +600s skew falls out of the window."""
+    init_slack_service("test_secret")
+    timestamp = str(_NOW_TS + 600)
+    body = b'{"type":"event_callback","event_id":"EvTFuture","event":{"type":"message","text":"hi"}}'
+    sig = _sign("test_secret", timestamp, body)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=body,
+        headers={
+            "X-Slack-Signature": sig,
+            "X-Slack-Request-Timestamp": timestamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 401, (
+        f"expected 401 at +600s future skew, got {response.status_code}: {response.text}"
     )

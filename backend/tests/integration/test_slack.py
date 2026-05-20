@@ -124,8 +124,17 @@ def test_unknown_request_type__400_error_envelope():
     is bypassed here because it is type-gated to
     ``event_callback`` / ``url_verification`` — the bogus
     ``v0=test_signature`` in the legacy test was meaningless theatre.
+
+    NOTE: we still need to init the verifier because the handler resolves
+    ``Depends(get_signature_verifier)`` BEFORE inspecting the request type.
+    Without an init call (and absent SLACK_SIGNING_SECRET), the factory
+    raises RuntimeError and the handler 500s instead of returning the
+    expected 400.
     """
     from src.main import app
+    from src.services.slack_service import init_slack_service
+
+    init_slack_service("test_secret")
 
     client = TestClient(app)
     response = client.post("/api/slack/events", json={"invalid": "data"})
