@@ -204,6 +204,11 @@ jobs:
   reviewer-chain-attestation:
     runs-on: ubuntu-22.04
     if: github.event_name == 'pull_request'
+    # C3: explicit minimum permissions so an org-level tightening of the
+    # default workflow token can't silently break this gate later.
+    permissions:
+      pull-requests: read
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: verify reviewer-chain disposition table present
