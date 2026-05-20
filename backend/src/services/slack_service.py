@@ -3,6 +3,7 @@ Slack Service
 Handles Slack webhook events, signature verification, and message processing
 """
 
+import os
 import time
 import hmac
 import hashlib
@@ -163,17 +164,34 @@ def process_file_event(event: Dict[str, Any]) -> Dict[str, Any]:
 signature_verifier: Optional[SlackSignatureVerifier] = None
 
 
-def init_slack_service():
-    """Initialize Slack service with configuration"""
-    global signature_verifier
-    # Load signing secret from environment/config
-    signing_secret = settings.slack_signing_secret
-    if not signing_secret:
-        if settings.debug:
-            logger.warning("SLACK_SIGNING_SECRET not set - using test secret (not for production)")
-            signing_secret = "test_secret"
-        else:
-            raise ValueError("SLACK_SIGNING_SECRET must be set in production mode")
+def init_slack_service(signing_secret: Optional[str] = None) -> "SlackSignatureVerifier":
+    """Initialize Slack service with configuration.
 
-    signature_verifier = SlackSignatureVerifier(signing_secret)
+    Fail-closed boot (C7): if no signing secret can be resolved from the
+    explicit argument, the configured settings value, or the process env,
+    raise ``RuntimeError``. The only opt-out is the explicit env-var
+    ``ALLOW_INSECURE_SLACK_FOR_TESTS=1`` which substitutes a literal
+    ``"test_secret"`` — intended for local dev / pytest runs only.
+    """
+    global signature_verifier
+    secret = (
+        signing_secret
+        or settings.slack_signing_secret
+        or os.environ.get("SLACK_SIGNING_SECRET")
+    )
+    if not secret:
+        if os.environ.get("ALLOW_INSECURE_SLACK_FOR_TESTS") == "1":
+            logger.warning(
+                "SLACK_SIGNING_SECRET not set - using test secret "
+                "(ALLOW_INSECURE_SLACK_FOR_TESTS=1 opt-in; do NOT use in production)"
+            )
+            secret = "test_secret"
+        else:
+            raise RuntimeError(
+                "SLACK_SIGNING_SECRET not set; set ALLOW_INSECURE_SLACK_FOR_TESTS=1 "
+                "for local-only test mode"
+            )
+
+    signature_verifier = SlackSignatureVerifier(secret)
     logger.info("Slack service initialized successfully")
+    return signature_verifier

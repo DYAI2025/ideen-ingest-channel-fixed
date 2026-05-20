@@ -13,7 +13,7 @@ def test_missing_signature_header__rejected_401():
     # Initialise the global verifier (current API takes no args; debug-mode
     # fallback supplies "test_secret"). A3 will introduce an explicit
     # signing_secret arg.
-    init_slack_service()
+    init_slack_service("test_secret")
     client = TestClient(app)
     response = client.post(
         "/api/slack/events",
@@ -36,7 +36,7 @@ def test_url_verification_without_signature__rejected_401():
     exists and letting an unauthenticated caller complete Slack's URL
     verification ritual.
     """
-    init_slack_service()
+    init_slack_service("test_secret")
     client = TestClient(app)
     response = client.post(
         "/api/slack/events",
