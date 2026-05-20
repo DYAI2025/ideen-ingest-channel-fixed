@@ -7,9 +7,11 @@ import os
 import time
 import logging
 from functools import lru_cache
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional, cast
 
-from slack_sdk.signature import SignatureVerifier as _UpstreamSignatureVerifier
+from slack_sdk.signature import (  # type: ignore[import-not-found]
+    SignatureVerifier as _UpstreamSignatureVerifier,
+)
 
 from ..core.config import settings
 
@@ -55,8 +57,13 @@ class SlackSignatureVerifier:
             return False
 
         # Delegate HMAC computation + constant-time compare to slack-sdk.
-        is_valid = self._upstream.is_valid(
-            body=body, timestamp=timestamp, signature=signature
+        # ``cast`` keeps mypy --strict happy on environments where the
+        # slack_sdk stubs aren't reachable from the type-checker's interpreter.
+        is_valid = cast(
+            bool,
+            self._upstream.is_valid(
+                body=body, timestamp=timestamp, signature=signature
+            ),
         )
         if not is_valid:
             logger.warning("Signature verification failed")
