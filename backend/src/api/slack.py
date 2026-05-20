@@ -9,8 +9,8 @@ from typing import Optional
 import time
 import logging
 
+from ..services import slack_service
 from ..services.slack_service import (
-    signature_verifier,
     process_slack_message,
     process_file_event,
     validate_timestamp,
@@ -47,6 +47,29 @@ async def slack_events_endpoint(
         request_type = body_data.get("type")
         logger.info(f"Received Slack webhook request: {request_type}")
 
+        # C5: Signature verification is unconditional for event_callback and
+        # url_verification. Missing headers or an unconfigured verifier now
+        # short-circuit to 401/503 (previously: deny-on-mismatch only — missing
+        # headers fell through to the success path).
+        if request_type in ("event_callback", "url_verification"):
+            if slack_service.signature_verifier is None:
+                logger.error("Slack signature verifier not configured")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Slack signature verifier not configured",
+                )
+            if not (x_slack_signature and x_slack_request_timestamp):
+                logger.warning("Missing Slack signature headers")
+                raise HTTPException(
+                    status_code=401,
+                    detail="Missing X-Slack-Signature or X-Slack-Request-Timestamp",
+                )
+            if not slack_service.signature_verifier.verify_signature(
+                x_slack_signature, x_slack_request_timestamp, body_str
+            ):
+                logger.warning("Signature verification failed")
+                raise HTTPException(status_code=401, detail="Invalid Slack signature")
+
         # Handle URL verification challenge
         if request_type == "url_verification":
             challenge = body_data.get("challenge")
@@ -58,14 +81,6 @@ async def slack_events_endpoint(
             event = body_data.get("event", {})
             event_type = event.get("type")
             logger.info(f"Processing event callback: {event_type}")
-
-            # Verify signature if provided
-            if signature_verifier and x_slack_signature and x_slack_request_timestamp:
-                if not signature_verifier.verify_signature(
-                    x_slack_signature, x_slack_request_timestamp, body_str
-                ):
-                    logger.warning("Signature verification failed")
-                    raise HTTPException(status_code=401, detail="Invalid signature")
 
             # Process different event types
             if event_type == "message":
