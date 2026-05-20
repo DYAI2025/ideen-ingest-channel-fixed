@@ -2,7 +2,9 @@
   background: #1e293b;
   border-radius: 12px;
   padding: 20px;
-  min-height: 600px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .kanban-controls {
@@ -16,7 +18,7 @@
 .kanban-controls h3 {
   margin: 0;
   color: #8b5cf6;
-  font-size: 1.5rem;
+  font-size: 1.2rem;
 }
 
 .phase-filter {
@@ -68,7 +70,8 @@
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 15px;
-  min-height: 500px;
+  flex: 1;
+  min-height: 0;
 }
 
 .kanban-column {

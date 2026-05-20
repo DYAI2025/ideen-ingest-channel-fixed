@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 gbrain_service = GBrainService()
 
 
-@router.get("/semantic/connections")
+@router.get("/connections")
 async def get_semantic_connections(
     similarity_threshold: float = 0.6,
     limit: int = 50
@@ -32,9 +32,9 @@ async def get_semantic_connections(
     """
     try:
         # Get all ideas from GBrain
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             return {
                 'status': 'success',
                 'connections': [],
@@ -43,7 +43,7 @@ async def get_semantic_connections(
         
         # Prepare documents for semantic analysis
         documents = []
-        for idea in ideas_data['ideas']:
+        for idea in ideas_list:
             content = idea.get('snippet', '') or idea.get('content', '')
             documents.append({
                 'id': idea.get('slug', idea.get('id', 'unknown')),
@@ -76,7 +76,7 @@ async def get_semantic_connections(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/semantic/topics")
+@router.get("/topics")
 async def get_main_topics(limit: int = 10) -> Dict[str, Any]:
     """
     Extract main topics from all GBrain ideas
@@ -89,9 +89,9 @@ async def get_main_topics(limit: int = 10) -> Dict[str, Any]:
     """
     try:
         # Get all ideas from GBrain
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             return {
                 'status': 'success',
                 'topics': [],
@@ -100,7 +100,7 @@ async def get_main_topics(limit: int = 10) -> Dict[str, Any]:
         
         # Prepare documents for topic extraction
         documents = []
-        for idea in ideas_data['ideas']:
+        for idea in ideas_list:
             content = idea.get('snippet', '') or idea.get('content', '')
             if content:
                 documents.append({
@@ -123,7 +123,7 @@ async def get_main_topics(limit: int = 10) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/semantic/analyze/{idea_id}")
+@router.get("/analyze/{idea_id}")
 async def analyze_idea(idea_id: str) -> Dict[str, Any]:
     """
     Analyze a single idea for semantic insights
@@ -136,14 +136,14 @@ async def analyze_idea(idea_id: str) -> Dict[str, Any]:
     """
     try:
         # Get specific idea from GBrain
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             raise HTTPException(status_code=404, detail="No ideas found")
         
         # Find the specific idea
         idea = None
-        for i in ideas_data['ideas']:
+        for i in ideas_list:
             if i.get('slug') == idea_id or i.get('id') == idea_id:
                 idea = i
                 break
@@ -176,7 +176,7 @@ async def analyze_idea(idea_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/semantic/similar/{idea_id}")
+@router.get("/similar/{idea_id}")
 async def find_similar_ideas(
     idea_id: str, 
     limit: int = 5
@@ -193,9 +193,9 @@ async def find_similar_ideas(
     """
     try:
         # Get all ideas from GBrain
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             return {
                 'status': 'success',
                 'similar_ideas': [],
@@ -204,7 +204,7 @@ async def find_similar_ideas(
         
         # Find the reference idea
         reference_idea = None
-        for i in ideas_data['ideas']:
+        for i in ideas_list:
             if i.get('slug') == idea_id or i.get('id') == idea_id:
                 reference_idea = i
                 break
@@ -215,7 +215,7 @@ async def find_similar_ideas(
         # Get semantic connections
         connections = semantic_service.find_semantic_connections(
             [{'id': i.get('slug', i.get('id')), 'content': i.get('snippet', '') or i.get('content', '')}
-             for i in ideas_data['ideas']],
+             for i in ideas_list],
             similarity_threshold=0.3  # Lower threshold for finding similar ideas
         )
         
@@ -241,7 +241,7 @@ async def find_similar_ideas(
         
         # Add idea details
         for sim_idea in similar_ideas:
-            for idea in ideas_data['ideas']:
+            for idea in ideas_list:
                 if idea.get('slug') == sim_idea['idea_id'] or idea.get('id') == sim_idea['idea_id']:
                     sim_idea['details'] = {
                         'slug': idea.get('slug'),

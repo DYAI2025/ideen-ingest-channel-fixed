@@ -1,7 +1,21 @@
 import { useState, useEffect } from 'react'
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 import axios from 'axios'
 import './KanbanBoard.css'
+
+interface DropResult {
+  draggableId: string
+  type: string
+  source: {
+    index: number
+    droppableId: string
+  }
+  destination: {
+    index: number
+    droppableId: string
+  } | null
+  reason?: string
+}
 
 interface Task {
   id: string
@@ -62,10 +76,8 @@ function KanbanBoard() {
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
-  // Use Railway backend URL in production, localhost in development
-  const API_BASE_URL = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
-    ? `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}/api`
-    : 'https://insightful-curiosity-production-5e41.up.railway.app/api'
+  // Use local backend URL
+  const API_BASE_URL = 'http://localhost:8002/api'
 
   // Load kanban data on mount
   useEffect(() => {

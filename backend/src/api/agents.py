@@ -62,7 +62,7 @@ class AgentTask(BaseModel):
 agent_tasks: List[AgentTask] = []
 
 
-@router.get("/agents/ideas")
+@router.get("/ideas")
 async def get_all_ideas_for_agents(
     phase: Optional[str] = None,
     limit: int = 100
@@ -78,23 +78,21 @@ async def get_all_ideas_for_agents(
         List of ideas with metadata
     """
     try:
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             return {
                 'status': 'success',
                 'ideas': [],
                 'message': 'No ideas found'
             }
         
-        ideas = ideas_data['ideas']
-        
         # Filter by phase if specified
         if phase:
-            ideas = [idea for idea in ideas if idea.get('phase') == phase]
+            ideas_list = [idea for idea in ideas_list if idea.get('phase') == phase]
         
         # Limit results
-        ideas = ideas[:limit]
+        ideas = ideas_list[:limit]
         
         return {
             'status': 'success',
@@ -108,7 +106,7 @@ async def get_all_ideas_for_agents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/agents/ideas/{idea_id}")
+@router.get("/ideas/{idea_id}")
 async def get_idea_for_agents(idea_id: str) -> Dict[str, Any]:
     """
     Get a specific idea for agent processing
@@ -120,14 +118,14 @@ async def get_idea_for_agents(idea_id: str) -> Dict[str, Any]:
         Detailed idea information
     """
     try:
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             raise HTTPException(status_code=404, detail="No ideas found")
         
         # Find the specific idea
         idea = None
-        for i in ideas_data['ideas']:
+        for i in ideas_list:
             if i.get('slug') == idea_id or i.get('id') == idea_id:
                 idea = i
                 break
@@ -157,7 +155,7 @@ async def get_idea_for_agents(idea_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/agents/ideas/{idea_id}/enrich")
+@router.put("/ideas/{idea_id}/enrich")
 async def enrich_idea(idea_id: str, enrichment: IdeaEnrichment) -> Dict[str, Any]:
     """
     Enrich an idea with agent research and product ideas
@@ -171,9 +169,9 @@ async def enrich_idea(idea_id: str, enrichment: IdeaEnrichment) -> Dict[str, Any
     """
     try:
         # Verify idea exists
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         idea_exists = False
-        for i in ideas_data.get('ideas', []):
+        for i in ideas_list:
             if i.get('slug') == idea_id or i.get('id') == idea_id:
                 idea_exists = True
                 break
@@ -203,7 +201,7 @@ async def enrich_idea(idea_id: str, enrichment: IdeaEnrichment) -> Dict[str, Any
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/agents/ideas/{idea_id}/similar")
+@router.get("/ideas/{idea_id}/similar")
 async def get_similar_ideas_for_agents(
     idea_id: str, 
     limit: int = 5
@@ -222,9 +220,9 @@ async def get_similar_ideas_for_agents(
         # Use semantic analysis to find similar ideas
         from src.services.semantic_analysis import semantic_service
         
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        if not ideas_data or 'ideas' not in ideas_data:
+        if not ideas_list:
             return {
                 'status': 'success',
                 'similar_ideas': [],
@@ -233,7 +231,7 @@ async def get_similar_ideas_for_agents(
         
         # Find reference idea
         reference_idea = None
-        for i in ideas_data['ideas']:
+        for i in ideas_list:
             if i.get('slug') == idea_id or i.get('id') == idea_id:
                 reference_idea = i
                 break
@@ -244,7 +242,7 @@ async def get_similar_ideas_for_agents(
         # Get semantic connections
         connections = semantic_service.find_semantic_connections(
             [{'id': i.get('slug', i.get('id')), 'content': i.get('snippet', '') or i.get('content', '')}
-             for i in ideas_data['ideas']],
+             for i in ideas_list],
             similarity_threshold=0.3
         )
         
@@ -270,7 +268,7 @@ async def get_similar_ideas_for_agents(
         
         # Add details
         for sim_idea in similar_ideas:
-            for idea in ideas_data['ideas']:
+            for idea in ideas_list:
                 if idea.get('slug') == sim_idea['idea_id'] or idea.get('id') == sim_idea['idea_id']:
                     sim_idea['details'] = {
                         'slug': idea.get('slug'),
@@ -294,7 +292,7 @@ async def get_similar_ideas_for_agents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/agents/tasks")
+@router.get("/tasks")
 async def get_agent_tasks(
     status: Optional[str] = None,
     task_type: Optional[str] = None
@@ -331,7 +329,7 @@ async def get_agent_tasks(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/agents/tasks")
+@router.post("/tasks")
 async def create_agent_task(task: AgentTask) -> Dict[str, Any]:
     """
     Create a new task for agents
@@ -361,7 +359,7 @@ async def create_agent_task(task: AgentTask) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/agents/tasks/{task_id}/complete")
+@router.put("/tasks/{task_id}/complete")
 async def complete_agent_task(task_id: str) -> Dict[str, Any]:
     """
     Mark an agent task as completed
@@ -399,7 +397,7 @@ async def complete_agent_task(task_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/agents/stats")
+@router.get("/stats")
 async def get_agent_stats() -> Dict[str, Any]:
     """
     Get statistics about ideas and agent activities
@@ -408,20 +406,20 @@ async def get_agent_stats() -> Dict[str, Any]:
         Statistics about ideas, phases, enrichment status
     """
     try:
-        ideas_data = gbrain_service.get_all_ideas()
+        ideas_list = await gbrain_service.list_ideas()
         
-        total_ideas = len(ideas_data.get('ideas', [])) if ideas_data else 0
+        total_ideas = len(ideas_list) if ideas_list else 0
         
         # Count ideas by phase
         phase_counts = {}
-        for idea in ideas_data.get('ideas', []):
+        for idea in ideas_list:
             phase = idea.get('phase', 'unknown')
             phase_counts[phase] = phase_counts.get(phase, 0) + 1
         
         # Count enriched ideas
         enriched_count = 0
         import os
-        for idea in ideas_data.get('ideas', []):
+        for idea in ideas_list:
             idea_id = idea.get('slug', idea.get('id'))
             if os.path.exists(f"/tmp/agent_enrichment_{idea_id}.json"):
                 enriched_count += 1

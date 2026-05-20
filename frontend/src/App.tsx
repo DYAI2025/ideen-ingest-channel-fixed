@@ -154,7 +154,7 @@ function App() {
 
       <main className="main">
         {/* Drag and Drop Zone */}
-        <section className="section">
+        <section className="section upload-section">
           <h2>📁 Datei-Upload</h2>
           <div className="controls">
             <label>
@@ -214,7 +214,7 @@ function App() {
         </section>
 
         {/* Ideas Search and List */}
-        <section className="section">
+        <section className="section ideas-section">
           <h2>💡 Ideen</h2>
           <div className="search-box">
             <input
