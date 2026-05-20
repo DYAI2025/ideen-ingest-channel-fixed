@@ -47,7 +47,7 @@ jobs:
           npm run lint
           npx tsc --noEmit
 
-  unit:
+  unit-backend:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -64,20 +64,43 @@ jobs:
         with:
           name: backend-coverage
           path: backend/coverage.xml
+
+  unit-frontend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
+      - name: misplaced-test guard
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          # I4 fix: vitest's --passWithNoTests would otherwise silently
+          # accept misplaced specs. Fail explicitly if any *.test.ts(x)
+          # lives outside tests/.
+          # `src/**/*.test.ts` requires at least one path component
+          # between `src/` and the filename, so a top-level
+          # `src/foo.test.ts` is NOT matched. Add `src/*.test.ts` to
+          # cover that zero-subdir case.
+          # `|| true` is defensive: git ls-files can exit non-zero
+          # under stricter configs (e.g. --error-unmatch). Without it
+          # the guard would mask a misconfigured pathspec as "clean".
+          stray=$(git ls-files -- \
+            'src/*.test.ts' 'src/*.test.tsx' 'src/*.spec.ts' 'src/*.spec.tsx' \
+            'src/**/*.test.ts' 'src/**/*.test.tsx' 'src/**/*.spec.ts' 'src/**/*.spec.tsx' \
+            || true)
+          if [ -n "$stray" ]; then
+            echo "::error::Test files found under frontend/src/ - move them to frontend/tests/{unit,integration}/:"
+            echo "$stray"
+            exit 1
+          fi
       - name: frontend unit
         working-directory: frontend
         run: |
           npm ci
-          # `--passWithNoTests` accommodates the preflight state (tests
-          # directories contain only .gitkeep stubs). Real specs land in
-          # Iter 0; the flag stays defensible because vitest still fails
-          # on actual test failures - it only short-circuits the
-          # "empty suite" case.
           npm test -- --passWithNoTests
 
   integration-fast:
@@ -131,7 +154,7 @@ jobs:
 
   diff-coverage:
     runs-on: ubuntu-22.04
-    needs: [unit]
+    needs: [unit-backend]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -147,18 +170,49 @@ jobs:
           uv tool install diff-cover
           # Threshold rises by iter; baseline 80% per plan §2.1.
           #
-          # `--exclude` for src/api and src/services is a TEMPORARY one-PR
-          # measure: the Preflight-Fix PR applies a backend-wide black
-          # format-pass without adding tests, which would otherwise make
-          # diff-cover see ~120 reformatted lines as uncovered. Real test
-          # coverage for these paths lands in Iter 0 (Baseline Freeze) and
-          # later iterations. ADR-016 documents the rationale and sunset.
+          # `--exclude` lists the files touched by the PR-#7 black
+          # format-pass that ship without test coverage. Any other file
+          # under src/api or src/services is intentionally NOT excluded,
+          # so new files in Iter 0+ get the full 80% diff-cover gate.
           #
-          # Sunset tracking: GitHub issue #8 ("Sunset: remove diff-cover
-          # --exclude on src/api+src/services"). The first Iter-0 PR
-          # MUST close this issue and delete the --exclude flags below.
-          # No silent forgetting.
+          # See ADR-016 for the governance waiver this exclude implements.
+          # Sunset tracking: GitHub issue #8. The first Iter-0 PR closes
+          # the issue by deleting these --exclude lines (or replacing
+          # them with real coverage). No silent forgetting.
+          #
+          # Patterns are fnmatch'd against the absolute path (after a
+          # basename fallback), so we prefix each entry with `*` to make
+          # the suffix match unambiguous. Without the leading wildcard
+          # diff-cover only matches the bare basename, which would also
+          # silently swallow same-named files elsewhere in the tree.
           uv tool run diff-cover coverage.xml \
             --compare-branch=origin/main \
             --fail-under=80 \
-            --exclude '*src/api*' '*src/services*'
+            --exclude \
+              '*backend/src/api/agents.py' \
+              '*backend/src/api/graph.py' \
+              '*backend/src/api/ideas.py' \
+              '*backend/src/api/ingest.py' \
+              '*backend/src/api/kanban.py' \
+              '*backend/src/api/semantic.py' \
+              '*backend/src/api/status.py' \
+              '*backend/src/services/file_watcher.py' \
+              '*backend/src/services/gbrain_service.py' \
+              '*backend/src/services/kanban_sync.py' \
+              '*backend/src/services/semantic_analysis.py'
+
+  reviewer-chain-attestation:
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    # C3: explicit minimum permissions so an org-level tightening of the
+    # default workflow token can't silently break this gate later.
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: verify reviewer-chain disposition table present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./scripts/check_reviewer_chain.sh
