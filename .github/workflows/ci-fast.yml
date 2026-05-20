@@ -147,11 +147,12 @@ jobs:
           uv tool install diff-cover
           # Threshold rises by iter; baseline 80% per plan §2.1.
           #
-          # `--exclude` lists the 11 files touched by the PR-#7 black
+          # `--exclude` lists the files touched by the PR-#7 black
           # format-pass that ship without test coverage. Any other file
           # under src/api or src/services is intentionally NOT excluded,
           # so new files in Iter 0+ get the full 80% diff-cover gate.
           #
+          # See ADR-016 for the governance waiver this exclude implements.
           # Sunset tracking: GitHub issue #8. The first Iter-0 PR closes
           # the issue by deleting these --exclude lines (or replacing
           # them with real coverage). No silent forgetting.
