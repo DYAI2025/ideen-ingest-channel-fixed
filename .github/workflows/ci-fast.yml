@@ -80,7 +80,13 @@ jobs:
           # I4 fix: vitest's --passWithNoTests would otherwise silently
           # accept misplaced specs. Fail explicitly if any *.test.ts(x)
           # lives outside tests/.
-          stray=$(git ls-files 'src/**/*.test.ts' 'src/**/*.test.tsx' 'src/**/*.spec.ts' 'src/**/*.spec.tsx' || true)
+          # Two pattern families: top-level (src/*.test.ts) and nested
+          # (src/**/*.test.ts). git's glob does not auto-recurse for
+          # `**` without the leading `*/`; needing both is intentional.
+          stray=$(git ls-files \
+            'src/*.test.ts' 'src/*.test.tsx' 'src/*.spec.ts' 'src/*.spec.tsx' \
+            'src/**/*.test.ts' 'src/**/*.test.tsx' 'src/**/*.spec.ts' 'src/**/*.spec.tsx' \
+            || true)
           if [ -n "$stray" ]; then
             echo "::error::Test files found under frontend/src/ - move them to frontend/tests/{unit,integration}/:"
             echo "$stray"
