@@ -22,9 +22,11 @@ from src.api.graph import router as graph_router
 from src.api.kanban import router as kanban_router
 from src.api.semantic import router as semantic_router
 from src.api.agents import router as agents_router
+from src.api.slack import router as slack_router
 from src.services.gbrain_service import GBrainService
 from src.services.file_watcher import FileWatcher
 from src.services.kanban_sync import KanbanSyncService
+from src.services.slack_service import init_slack_service
 from src.core.config import settings
 
 app = FastAPI(
@@ -68,6 +70,7 @@ app.include_router(graph_router, prefix="/api/graph", tags=["Graph"])
 app.include_router(kanban_router, prefix="/api/kanban", tags=["Kanban"])
 app.include_router(semantic_router, prefix="/api/semantic", tags=["Semantic Analysis"])
 app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
+app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])
 
 # Static files for frontend
 frontend_path = Path(__file__).parent.parent / "frontend"
@@ -91,6 +94,10 @@ async def startup_event():
     
     # Ensure directories exist
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Initialize Slack service
+    init_slack_service()
+    print("📱 Slack service initialized")
     
     # Start file watcher (commented out for now to prevent import loops)
     # asyncio.create_task(file_watcher.watch_directory(settings.upload_dir))
