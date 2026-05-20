@@ -77,13 +77,18 @@ jobs:
       - name: misplaced-test guard
         working-directory: frontend
         run: |
+          set -euo pipefail
           # I4 fix: vitest's --passWithNoTests would otherwise silently
           # accept misplaced specs. Fail explicitly if any *.test.ts(x)
           # lives outside tests/.
-          # Two pattern families: top-level (src/*.test.ts) and nested
-          # (src/**/*.test.ts). git's glob does not auto-recurse for
-          # `**` without the leading `*/`; needing both is intentional.
-          stray=$(git ls-files \
+          # `src/**/*.test.ts` requires at least one path component
+          # between `src/` and the filename, so a top-level
+          # `src/foo.test.ts` is NOT matched. Add `src/*.test.ts` to
+          # cover that zero-subdir case.
+          # `|| true` is defensive: git ls-files can exit non-zero
+          # under stricter configs (e.g. --error-unmatch). Without it
+          # the guard would mask a misconfigured pathspec as "clean".
+          stray=$(git ls-files -- \
             'src/*.test.ts' 'src/*.test.tsx' 'src/*.spec.ts' 'src/*.spec.tsx' \
             'src/**/*.test.ts' 'src/**/*.test.tsx' 'src/**/*.spec.ts' 'src/**/*.spec.tsx' \
             || true)
