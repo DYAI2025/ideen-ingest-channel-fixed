@@ -9,6 +9,7 @@ Stub implementation: the real helpers ship with Iter 2 once the workspaces
 table exists. Defining the API here gives Iter 2 a known signature to write
 its Red-phase tests against.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -30,12 +31,12 @@ async def as_workspace(session, workspace_id: UUID) -> AsyncIterator[None]:
     a transaction so the variable is rolled back on exit. The stub raises
     until Iter 2 lands.
     """
-    raise NotImplementedError(
-        "as_workspace lands with Iter 2 (Event Store / RLS migration)."
-    )
+    raise NotImplementedError("as_workspace lands with Iter 2 (Event Store / RLS migration).")
 
 
-async def assert_cross_workspace_query_empty(session, workspace_a: UUID, workspace_b: UUID, query) -> None:
+async def assert_cross_workspace_query_empty(
+    session, workspace_a: UUID, workspace_b: UUID, query
+) -> None:
     """Run `query` under workspace A, then under B; assert isolation.
 
     Helper used by `test_rls__cross_workspace_query__returns_empty`.

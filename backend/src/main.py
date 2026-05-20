@@ -2,6 +2,7 @@
 Main FastAPI Application for Ideen Ingest Channel
 SSH-zugänglicher Drag-and-Drop Eingangskanal für GBrain
 """
+
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -32,7 +33,7 @@ app = FastAPI(
     description="SSH-zugänglicher Drag-and-Drop Eingangskanal für GBrain Ideen-System",
     version="0.1.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 # CORS Middleware
@@ -44,11 +45,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Health check endpoint for Railway
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Railway deployment"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
 
 # GBrain → Kanban sync endpoint
 @app.post("/api/sync/kanban")
@@ -59,6 +62,7 @@ async def sync_gbrain_to_kanban():
         return {"status": "success", "message": "GBrain → Kanban sync completed"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 # Include routers
 app.include_router(ingest_router, prefix="/api/ingest", tags=["Ingest"])
@@ -82,20 +86,22 @@ gbrain_service = GBrainService()
 file_watcher = FileWatcher()
 kanban_sync_service = KanbanSyncService()
 
+
 @app.on_event("startup")
 async def startup_event():
     """Start-up event handler"""
     print("🚀 Ideen Ingest Channel starting up...")
     print(f"📂 Upload directory: {settings.upload_dir}")
     print(f"🧠 GBrain source: {settings.gbrain_source}")
-    
+
     # Ensure directories exist
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Start file watcher (commented out for now to prevent import loops)
     # asyncio.create_task(file_watcher.watch_directory(settings.upload_dir))
-    
+
     print("✅ Startup complete")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -104,11 +110,6 @@ async def shutdown_event():
     # await file_watcher.stop() # Commented out since file watcher is disabled
     print("✅ Shutdown complete")
 
+
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="info")
