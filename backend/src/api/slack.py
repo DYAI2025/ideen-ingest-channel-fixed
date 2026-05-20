@@ -14,7 +14,6 @@ from ..services.slack_service import (
     get_signature_verifier,
     process_slack_message,
     process_file_event,
-    validate_timestamp,
 )
 
 logger = logging.getLogger(__name__)

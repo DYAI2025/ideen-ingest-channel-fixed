@@ -88,25 +88,6 @@ class SlackSignatureVerifier:
             return False
 
 
-def validate_timestamp(timestamp: str) -> bool:
-    """
-    Validate timestamp is within acceptable range (5 minutes)
-
-    Args:
-        timestamp: Unix timestamp as string
-
-    Returns:
-        True if timestamp is valid, False otherwise
-    """
-    try:
-        request_time = int(timestamp)
-        current_time = int(time.time())
-        # Accept requests within 5 minutes
-        return abs(current_time - request_time) < 300
-    except (ValueError, TypeError):
-        return False
-
-
 def process_slack_message(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process Slack message event
