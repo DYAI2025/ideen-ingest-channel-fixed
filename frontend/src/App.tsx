@@ -2,8 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import axios from 'axios'
 import SimpleGraph from './SimpleGraph'
-import BrainGraph3D from './BrainGraph3D'
 import ObsidianGraph from './ObsidianGraph'
+import KanbanBoard from './KanbanBoard'
 import './App.css'
 
 interface FileUploadResult {
@@ -32,19 +32,13 @@ function App() {
   const [selectedPhase, setSelectedPhase] = useState('seed')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | '3d-brain' | 'obsidian'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'simple-graph' | 'obsidian' | 'kanban'>('list')
   const [apiError, setApiError] = useState<string | null>(null)
 
-  const normalizeApiBaseUrl = (rawUrl?: string): string => {
-    if (!rawUrl) return '/api'
-
-    const trimmedUrl = rawUrl.replace(/\/+$/, '')
-    if (!trimmedUrl) return '/api'
-
-    return trimmedUrl.endsWith('/api') ? trimmedUrl : `${trimmedUrl}/api`
-  }
-
-  const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL)
+  const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+  const API_BASE_URL = configuredApiUrl
+    ? (configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`)
+    : 'https://insightful-curiosity-production-5e41.up.railway.app/api'
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true)
@@ -160,7 +154,7 @@ function App() {
 
       <main className="main">
         {/* Drag and Drop Zone */}
-        <section className="section">
+        <section className="section upload-section">
           <h2>📁 Datei-Upload</h2>
           <div className="controls">
             <label>
@@ -220,7 +214,7 @@ function App() {
         </section>
 
         {/* Ideas Search and List */}
-        <section className="section">
+        <section className="section ideas-section">
           <h2>💡 Ideen</h2>
           <div className="search-box">
             <input
@@ -246,16 +240,16 @@ function App() {
                 2D Graph
               </button>
               <button 
-                className={viewMode === '3d-brain' ? 'active' : ''}
-                onClick={() => setViewMode('3d-brain')}
-              >
-                🧠 3D Brain
-              </button>
-              <button 
                 className={viewMode === 'obsidian' ? 'active' : ''}
                 onClick={() => setViewMode('obsidian')}
               >
                 📝 Obsidian
+              </button>
+              <button 
+                className={viewMode === 'kanban' ? 'active' : ''}
+                onClick={() => setViewMode('kanban')}
+              >
+                📋 Kanban
               </button>
             </div>
           </div>
@@ -280,10 +274,10 @@ function App() {
             )
           ) : viewMode === 'simple-graph' ? (
             <SimpleGraph apiUrl={`${API_BASE_URL}/graph`} />
-          ) : viewMode === '3d-brain' ? (
-            <BrainGraph3D apiUrl={`${API_BASE_URL}/graph`} />
-          ) : (
+          ) : viewMode === 'obsidian' ? (
             <ObsidianGraph />
+          ) : (
+            <KanbanBoard />
           )}
         </section>
       </main>

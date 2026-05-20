@@ -11,18 +11,23 @@ export default defineConfig({
       'kanban.vision.dyai.cloud',
       'graph.vision.dyai.cloud',
       'obsidian.vision.dyai.cloud',
+      'gbrain.dyai.cloud',
       '.dyai.cloud',
       '.railway.app'
     ],
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
+        target: 'http://localhost:8002',
         changeOrigin: true,
       }
     }
   },
   preview: {
     host: true,
-    allowedHosts: true
+    allowedHosts: [
+      'gbrain.dyai.cloud',
+      '.dyai.cloud',
+      '.railway.app'
+    ]
   }
 })
