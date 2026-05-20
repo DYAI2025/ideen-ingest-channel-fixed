@@ -100,7 +100,9 @@ async def startup_event():
     # Ensure directories exist
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize Slack service
+    # Initialize Slack service. Fail-closed (C7): if SLACK_SIGNING_SECRET is
+    # absent and ALLOW_INSECURE_SLACK_FOR_TESTS is not set, this raises and
+    # the process should NOT silently continue with a disabled verifier.
     init_slack_service()
     print("📱 Slack service initialized")
 

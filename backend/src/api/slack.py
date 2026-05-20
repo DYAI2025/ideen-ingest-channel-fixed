@@ -3,17 +3,18 @@ Slack API Router
 Handles Slack webhook events and challenge responses
 """
 
-from fastapi import APIRouter, HTTPException, Request, Header
-from fastapi.responses import JSONResponse
-from typing import Optional
-import time
+import json
 import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi.responses import JSONResponse
 
 from ..services.slack_service import (
-    signature_verifier,
+    SlackSignatureVerifier,
+    get_signature_verifier,
     process_slack_message,
     process_file_event,
-    validate_timestamp,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,24 +27,39 @@ async def slack_events_endpoint(
     request: Request,
     x_slack_signature: Optional[str] = Header(None, alias="X-Slack-Signature"),
     x_slack_request_timestamp: Optional[str] = Header(None, alias="X-Slack-Request-Timestamp"),
+    verifier: SlackSignatureVerifier = Depends(get_signature_verifier),
 ):
     """
     Handle Slack webhook events
 
-    This endpoint receives:
-    - URL verification challenges (during Slack app setup)
-    - Event callbacks (messages, file shares, etc.)
+    Receives URL verification challenges and event callbacks. Every request
+    is signature-verified BEFORE the body is parsed (C4/I12): unauthenticated
+    callers cannot probe the JSON parser. Slack signs both event_callback
+    and url_verification per their docs, so the always-verify posture is
+    correct.
     """
     try:
-        # Read raw body for signature verification
         body_bytes = await request.body()
         body_str = body_bytes.decode("utf-8")
 
-        # Parse JSON body
-        import json
+        # C4/I12: verify signature on the raw bytes BEFORE json.loads. The
+        # previous order (parse → type-gated verify) let unauthenticated
+        # callers see JSONDecodeError responses and reach the gate only for
+        # known request types; that leaked parser behaviour and skipped
+        # verification on bogus types. Always-verify is the correct posture
+        # because Slack signs every request to this endpoint.
+        if not (x_slack_signature and x_slack_request_timestamp):
+            logger.warning("Missing Slack signature headers")
+            raise HTTPException(
+                status_code=401,
+                detail="Missing X-Slack-Signature or X-Slack-Request-Timestamp",
+            )
+        if not verifier.verify_signature(x_slack_signature, x_slack_request_timestamp, body_str):
+            logger.warning("Signature verification failed")
+            raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
+        # Now safe to parse — caller is authenticated.
         body_data = json.loads(body_str)
-
         request_type = body_data.get("type")
         logger.info(f"Received Slack webhook request: {request_type}")
 
@@ -58,14 +74,6 @@ async def slack_events_endpoint(
             event = body_data.get("event", {})
             event_type = event.get("type")
             logger.info(f"Processing event callback: {event_type}")
-
-            # Verify signature if provided
-            if signature_verifier and x_slack_signature and x_slack_request_timestamp:
-                if not signature_verifier.verify_signature(
-                    x_slack_signature, x_slack_request_timestamp, body_str
-                ):
-                    logger.warning("Signature verification failed")
-                    raise HTTPException(status_code=401, detail="Invalid signature")
 
             # Process different event types
             if event_type == "message":
@@ -88,13 +96,15 @@ async def slack_events_endpoint(
         )
 
     except json.JSONDecodeError:
-        logger.error("Invalid JSON in request body")
+        logger.error("Invalid JSON in request body (post-signature)")
         return JSONResponse(content={"error": "Invalid JSON", "status": "error"}, status_code=400)
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
-    except Exception as e:
-        logger.error(f"Internal error processing Slack webhook: {str(e)}")
-        return JSONResponse(
-            content={"error": f"Internal error: {str(e)}", "status": "error"}, status_code=500
-        )
+    except Exception:
+        # C8: log full trace server-side, return an opaque message to the
+        # caller. The previous implementation interpolated str(e) into the
+        # response body which leaked internal details to unauthenticated
+        # callers.
+        logger.exception("Internal error processing Slack webhook")
+        return JSONResponse(content={"error": "Internal error", "status": "error"}, status_code=500)
