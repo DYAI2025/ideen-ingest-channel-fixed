@@ -5,21 +5,30 @@ Handles Slack webhook events, signature verification, and message processing
 
 import os
 import time
-import hmac
-import hashlib
 import logging
 from functools import lru_cache
 from typing import Dict, Any, Optional
+
+from slack_sdk.signature import SignatureVerifier as _UpstreamSignatureVerifier
+
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class SlackSignatureVerifier:
-    """Verifies Slack webhook signatures"""
+    """Verifies Slack webhook signatures.
 
-    def __init__(self, signing_secret: str):
+    C1/I5: Thin wrapper around ``slack_sdk.signature.SignatureVerifier`` —
+    delegates HMAC computation + constant-time comparison to the upstream
+    library while preserving our handler-facing ``verify_signature`` API
+    surface and our strict ``< 300`` timestamp window (upstream uses
+    ``> 300`` which is one second more permissive at the boundary).
+    """
+
+    def __init__(self, signing_secret: str) -> None:
         self.signing_secret = signing_secret
+        self._upstream = _UpstreamSignatureVerifier(signing_secret)
 
     def verify_signature(self, signature: str, timestamp: str, body: str) -> bool:
         """
@@ -37,22 +46,18 @@ class SlackSignatureVerifier:
             logger.warning("Missing signature or timestamp in request")
             return False
 
-        # Check timestamp freshness (prevent replay attacks)
+        # Check timestamp freshness FIRST (prevent replay attacks). We keep
+        # our own ``abs(diff) < 300`` strict-less-than window — upstream's
+        # ``is_valid`` uses ``> 300`` (rejects > 5 minutes), so without this
+        # explicit pre-check the boundary at exactly 300s would shift.
         if not self._is_timestamp_valid(timestamp):
             logger.warning(f"Invalid timestamp in request: {timestamp}")
             return False
 
-        # Create signature
-        sig_basestring = f"v0:{timestamp}:{body}".encode("utf-8")
-        my_signature = (
-            "v0="
-            + hmac.new(
-                self.signing_secret.encode("utf-8"), sig_basestring, hashlib.sha256
-            ).hexdigest()
+        # Delegate HMAC computation + constant-time compare to slack-sdk.
+        is_valid = self._upstream.is_valid(
+            body=body, timestamp=timestamp, signature=signature
         )
-
-        # Compare signatures
-        is_valid = hmac.compare_digest(my_signature, signature)
         if not is_valid:
             logger.warning("Signature verification failed")
         return is_valid
