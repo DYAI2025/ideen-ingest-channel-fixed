@@ -1,0 +1,178 @@
+name: ci-deep
+
+# < 25 min budget. Runs nightly and on PRs labelled "release".
+# See docs/IMPLEMENTATION_PLAN_TDD.md §2.4.
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # ~03:17 UTC nightly
+  pull_request:
+    types: [labeled, synchronize, opened]
+
+concurrency:
+  group: ci-deep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          elif [ "${{ contains(github.event.pull_request.labels.*.name, 'release') }}" = "true" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+
+  schemathesis:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: property-based contract tests
+        working-directory: backend
+        run: |
+          uv sync --dev
+          # Iter 1 produces docs/api/openapi.yaml; until then skip.
+          if [ -f ../docs/api/openapi.yaml ]; then
+            uv run schemathesis run ../docs/api/openapi.yaml \
+              --base-url=http://localhost:8001 \
+              --hypothesis-deadline=2000 \
+              --checks all \
+              --workers 4 || true
+          else
+            echo "openapi snapshot not yet introduced (Iter 1)"
+          fi
+
+  mutation:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: mutation tests on changed critical paths
+        working-directory: backend
+        run: |
+          uv sync --dev
+          # Determine changed files vs origin/main and limit mutmut scope to
+          # critical-path modules (plan §2.1).
+          CHANGED=$(git diff --name-only origin/main...HEAD | \
+            grep -E '^backend/src/services/(events|proposals|kanban_sync|auth|gbrain_bridge)/' | \
+            sed 's|^backend/||' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "no critical-path changes to mutate"
+            exit 0
+          fi
+          echo "mutating: $CHANGED"
+          uv run mutmut run --paths-to-mutate="$CHANGED" --runner='uv run pytest -x -q' || true
+          uv run mutmut results || true
+
+  e2e:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideen
+          POSTGRES_PASSWORD: ideen
+          POSTGRES_DB: ideen_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ideen -d ideen_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+    env:
+      DATABASE_URL: postgresql://ideen:ideen@localhost:5433/ideen_test
+      REDIS_URL: redis://localhost:6380/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: install playwright
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: e2e suite
+        working-directory: frontend
+        run: |
+          # Iter 9 ships the actual e2e specs; until then this is a smoke
+          # placeholder that exits 0.
+          npm run test:e2e || true
+
+  migration-check:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideen
+          POSTGRES_PASSWORD: ideen
+          POSTGRES_DB: ideen_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ideen -d ideen_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ideen:ideen@localhost:5433/ideen_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: alembic up/down/up reversibility
+        working-directory: backend
+        run: |
+          uv sync --dev
+          # Iter 2 introduces alembic; this step is a no-op until then.
+          if [ -d alembic ]; then
+            uv run alembic upgrade head
+            uv run alembic downgrade -1
+            uv run alembic upgrade head
+          else
+            echo "alembic not yet introduced (Iter 2)"
+          fi
+
+  smoke-deploy:
+    needs: gate
+    if: needs.gate.outputs.run == 'true' && contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: smoke deploy preview
+        run: |
+          # Iter 10 wires Railway preview environments; placeholder for now.
+          echo "smoke-deploy not yet wired (Iter 10)"

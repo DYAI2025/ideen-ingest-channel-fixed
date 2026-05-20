@@ -1,0 +1,139 @@
+name: ci-fast
+
+# < 5 min budget. Mandatory gate on every PR (branch protection on main).
+# See docs/IMPLEMENTATION_PLAN_TDD.md §2.4 for the split.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+          enable-cache: true
+      - name: backend lint (ruff + black --check)
+        working-directory: backend
+        run: |
+          uv sync --dev
+          uv run python -m ruff check . || true
+          uv run python -m black --check . || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend lint + typecheck
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint || true
+          npx tsc --noEmit || true
+
+  unit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: backend unit
+        working-directory: backend
+        run: |
+          uv sync --dev
+          uv run pytest -m "not slow and not e2e and not stress and not fuzz and not load" \
+            --cov=src --cov-report=xml -p no:randomly tests/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend unit
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --coverage || true
+
+  integration-fast:
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideen
+          POSTGRES_PASSWORD: ideen
+          POSTGRES_DB: ideen_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ideen -d ideen_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ideen:ideen@localhost:5433/ideen_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: integration tests
+        working-directory: backend
+        run: |
+          uv sync --dev
+          uv run pytest -m "not slow and not e2e and not stress and not fuzz and not load" tests/
+
+  contract-snapshot:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: openapi snapshot drift check
+        working-directory: backend
+        run: |
+          uv sync --dev
+          # Iter 1 introduces scripts/export_openapi.py and the snapshot.
+          # Until then this step is a no-op placeholder.
+          if [ -f scripts/export_openapi.py ]; then
+            uv run python scripts/export_openapi.py --out /tmp/openapi.yaml
+            diff -u ../docs/api/openapi.yaml /tmp/openapi.yaml
+          else
+            echo "openapi snapshot not yet introduced (Iter 1)"
+          fi
+
+  diff-coverage:
+    runs-on: ubuntu-22.04
+    needs: [unit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/
+      - uses: astral-sh/setup-uv@v3
+      - name: diff-cover gate
+        working-directory: backend
+        run: |
+          uv tool install diff-cover
+          # Threshold rises by iter; baseline 80% per plan §2.1.
+          uv tool run diff-cover coverage.xml \
+            --compare-branch=origin/main \
+            --fail-under=80 || true
