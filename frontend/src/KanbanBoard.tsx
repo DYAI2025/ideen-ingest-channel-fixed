@@ -73,6 +73,9 @@ const initialColumns: Column[] = [
 function KanbanBoard() {
   const [columns, setColumns] = useState<Column[]>(initialColumns)
   const [selectedPhase, setSelectedPhase] = useState<string>('all')
+  // `loading` is unread; UI hook-up belongs to Iter 1 frontend stabilisation.
+  // setLoading is still called by loadKanbanData below.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
 

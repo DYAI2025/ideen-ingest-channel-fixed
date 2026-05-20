@@ -2,6 +2,7 @@
 Tests for Agent API - TDD Approach
 Tests will fail initially (Red), then implementation will make them pass (Green)
 """
+
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
@@ -56,23 +57,21 @@ def test_enrich_idea():
         idea_id = _first_idea_id(all_ideas.json()["ideas"])
         if idea_id is None:
             pytest.skip("No idea with usable slug/id (gbrain CLI likely unavailable)")
-        
+
         enrichment_data = {
             "products": [
                 {
                     "title": "Test Product",
                     "description": "Test Description",
                     "target_audience": "Test Audience",
-                    "revenue_model": "subscription"
+                    "revenue_model": "subscription",
                 }
             ],
-            "research": {
-                "market_analysis": "Test market analysis"
-            },
+            "research": {"market_analysis": "Test market analysis"},
             "agent_notes": "Test notes",
-            "status": "researched"
+            "status": "researched",
         }
-        
+
         response = client.put(f"/api/agents/ideas/{idea_id}/enrich", json=enrichment_data)
         assert response.status_code == 200
         data = response.json()
@@ -96,9 +95,9 @@ def test_create_agent_task():
         "task_type": "research",
         "priority": "medium",
         "status": "pending",
-        "created_at": "2025-01-01T00:00:00"
+        "created_at": "2025-01-01T00:00:00",
     }
-    
+
     response = client.post("/api/agents/tasks", json=task_data)
     assert response.status_code == 200
     data = response.json()
