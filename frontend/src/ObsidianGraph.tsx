@@ -17,6 +17,8 @@ export default function ObsidianGraph({ apiUrl = 'http://localhost:3006' }: Obsi
         setLoading(true)
         const response = await axios.get(`${apiUrl}/api/graph/files`)
         setGraphData(response.data)
+      // error object is intentionally swallowed; surfaced via UI banner only.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (err) {
         setError('Failed to load Obsidian graph')
       } finally {
