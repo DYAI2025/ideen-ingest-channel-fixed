@@ -10,6 +10,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+*.egg-info/
 
 # IDE
 .vscode/
@@ -33,3 +34,6 @@ htmlcov/
 
 # Devin
 .devin/
+
+# Railway
+.railway/
