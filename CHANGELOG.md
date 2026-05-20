@@ -45,3 +45,18 @@ Versionierung erfolgt vorerst nicht — Datum-Sortierung reicht für die Pre-Ite
   - `docs/IMPLEMENTATION_PLAN_TDD.md` D6-Tabelle + ADR-Tabelle auf OpenRouter umgestellt.
   - Branch-Protection auf `main` aktiviert mit 7 required Checks (`lint`, `unit-backend`, `unit-frontend`, `integration-fast`, `contract-snapshot`, `diff-coverage`, `reviewer-chain-attestation`) + `enforce_admins: true`. Bypass für Owner-Merges deaktiviert. ADR-016 §2 vorgezogen aus Iter 10.
   - `.env` bleibt lokal-only (gitignored). CI-Secret-Name dokumentiert als `OPENROUTER_API_KEY`.
+- **Slack-PR Hardening (chore/2026-05-20-slack-hardening-fixes):**
+  - C5: signature verification unconditional for `event_callback` + `url_verification` (missing headers → 401, war 200 mit deny-on-mismatch).
+  - C6: URL-verification challenge requires valid signature BEFORE responding (war: 200 + challenge ohne jeden Check).
+  - C7: `init_slack_service` fail-closed boot when `SLACK_SIGNING_SECRET` unset; debug-mode `"test_secret"` fallback removed. Opt-in via `ALLOW_INSECURE_SLACK_FOR_TESTS=1`.
+  - C8: 500 responses no longer leak exception detail; full trace logged server-side via `logger.exception`.
+  - C9: module-level `signature_verifier` singleton replaced with `@lru_cache get_signature_verifier()` factory + FastAPI `Depends`. Handler protected lazily even without explicit init call.
+  - C4/I12: signature verification BEFORE `json.loads`. Always-verify (not type-gated). Unauthenticated callers cannot probe JSON parser.
+  - I1/I2/I3: test-theatre (`test_slack_event_endpoint_not_implemented`, `test_challenge_response_not_implemented` — die `v0=test_signature` bogus headers benutzten und 200 erwarteten) durch real-HMAC-Tests ersetzt.
+  - I4: `backend/tests/test_slack.py` flat → `tests/unit/test_slack_sig.py` + `test_slack_init.py` + `test_slack_service.py` + `tests/integration/test_slack.py`. Plus `tests/_helpers/slack.py::_sign`.
+  - I5: hand-rolled HMAC durch `slack_sdk.signature.SignatureVerifier`-Wrapper ersetzt. Eigene strict-less-than-300s Timestamp-Window-Behavior bleibt.
+  - I7: `mypy --strict` Annotations auf `backend/src/services/slack_service.py`.
+  - I8: unused `validate_timestamp` free-function entfernt.
+  - I9: Timestamp-Window-Edge-Tests (299/300/301 + 600s future-skew) via `freezegun`.
+  - Iter-deferred Findings (Tracker-Issues #24–#30): C1 (Audit), C2 (arq Iter 6), C3 (dedup Iter 2), C4-tracker (OAuth Iter 4), I6 (OpenAPI Iter 1), I10 (= C3), I11 (CORS Iter 1).
+  - Pre-existing Slack-PR (commit `1ae481f`) Schwarmcommits dokumentiert als Beispiel des `1ae481f → branch-protection`-Failure-Modes, den PR #23 nachträglich verhindert.
