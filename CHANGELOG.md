@@ -31,3 +31,9 @@ Versionierung erfolgt vorerst nicht — Datum-Sortierung reicht für die Pre-Ite
   - `.gitignore`: ergänzt um `*.zip`, `ruvector.db`, `.claude/`, `.venv/`, `.pytest_cache/`, `.ruff_cache/`, `coverage.xml`, `PRJCT__save_*.md`, `ideen_architektur_deliverables*/`.
   - `docs/adr/ADR-016-governance-waiver-preflight-no-review.md`: dokumentiert den einmaligen Skip des Reviewer-Chain auf PR #5 und PR #6; Sunset ab Iter 0.
   - GitHub-Issue #8 verfolgt Sunset des temporären `diff-cover --exclude` für `src/api`/`src/services` (zu schließen vor dem ersten Iter-0-PR).
+- **Preflight-Fix-2 (chore/preflight-fix-2):**
+  - I1: `diff-cover --exclude` Glob ersetzt durch explizite 11-Datei-Liste mit `*`-Wildcard-Prefix (fnmatch-Anforderung). Future-Files unter `src/api`/`src/services` durchlaufen jetzt den 80%-Gate.
+  - I2: `unit`-Job aufgeteilt in parallele `unit-backend` + `unit-frontend`. Backend-Pytest-Fail koppelt nicht mehr Frontend-Signale ab. `diff-coverage.needs` auf `unit-backend` aktualisiert.
+  - I3: `scripts/check_reviewer_chain.sh` + `reviewer-chain-attestation`-Job in `ci-fast.yml`. Verlangt `Reviewer-Chain Findings-Disposition`-Tabelle in PR-Body, Issue-Kommentaren, Review-Bodies oder Review-Thread-Kommentaren. Distinct exit codes 0/1/2 für found/missing/infra. Lenient regex-Matching (case-insensitive, flexible separator). Explizite `permissions: pull-requests: read, contents: read`.
+  - I4: Misplaced-Test-Guard-Step in `unit-frontend` blockt Test-Dateien unter `frontend/src/` (Top-Level + Nested). `set -euo pipefail` + `--`-anchored pathspec.
+  - ADR-016 referenziert + Sunset-Issue #8 mit fnmatch-Pitfall-Kommentar dokumentiert.
