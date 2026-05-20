@@ -307,6 +307,36 @@ def test_timestamp_at_301s__rejected():
     )
 
 
+def test_malformed_json_with_invalid_signature__rejected_before_parse():
+    """C4 / I12: a request body that is NOT valid JSON, accompanied by a
+    bogus signature header, must be rejected at the signature gate (401)
+    BEFORE any ``json.loads`` is attempted.
+
+    The previous handler parsed JSON first and only ran signature
+    verification for known ``type`` values — so a malformed body returned
+    400 (JSONDecodeError) and never exercised the gate. That is a layering
+    bug: unauthenticated callers should never be able to learn anything
+    about the JSON parser's behaviour. Verify-then-parse.
+    """
+    init_slack_service("test_secret")
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=b"this is not json",
+        headers={
+            "X-Slack-Signature": "v0=deadbeef",
+            "X-Slack-Request-Timestamp": str(int(time.time())),
+            "Content-Type": "application/json",
+        },
+    )
+
+    # MUST be 401 (sig gate fired) — not 400 (JSONDecodeError) and not 500.
+    assert response.status_code == 401, (
+        f"expected 401 (sig gate before parse), got {response.status_code}: "
+        f"{response.text}"
+    )
+
+
 @freeze_time(_FROZEN_NOW)
 def test_timestamp_future_skew_600s__rejected():
     """B3: a timestamp 600s in the FUTURE represents either malicious

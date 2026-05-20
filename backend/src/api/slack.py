@@ -3,11 +3,12 @@ Slack API Router
 Handles Slack webhook events and challenge responses
 """
 
+import json
+import logging
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
-from typing import Optional
-import time
-import logging
 
 from ..services.slack_service import (
     SlackSignatureVerifier,
@@ -31,40 +32,38 @@ async def slack_events_endpoint(
     """
     Handle Slack webhook events
 
-    This endpoint receives:
-    - URL verification challenges (during Slack app setup)
-    - Event callbacks (messages, file shares, etc.)
+    Receives URL verification challenges and event callbacks. Every request
+    is signature-verified BEFORE the body is parsed (C4/I12): unauthenticated
+    callers cannot probe the JSON parser. Slack signs both event_callback
+    and url_verification per their docs, so the always-verify posture is
+    correct.
     """
     try:
-        # Read raw body for signature verification
         body_bytes = await request.body()
         body_str = body_bytes.decode("utf-8")
 
-        # Parse JSON body
-        import json
+        # C4/I12: verify signature on the raw bytes BEFORE json.loads. The
+        # previous order (parse → type-gated verify) let unauthenticated
+        # callers see JSONDecodeError responses and reach the gate only for
+        # known request types; that leaked parser behaviour and skipped
+        # verification on bogus types. Always-verify is the correct posture
+        # because Slack signs every request to this endpoint.
+        if not (x_slack_signature and x_slack_request_timestamp):
+            logger.warning("Missing Slack signature headers")
+            raise HTTPException(
+                status_code=401,
+                detail="Missing X-Slack-Signature or X-Slack-Request-Timestamp",
+            )
+        if not verifier.verify_signature(
+            x_slack_signature, x_slack_request_timestamp, body_str
+        ):
+            logger.warning("Signature verification failed")
+            raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
+        # Now safe to parse — caller is authenticated.
         body_data = json.loads(body_str)
-
         request_type = body_data.get("type")
         logger.info(f"Received Slack webhook request: {request_type}")
-
-        # C5/C9: Signature verification is unconditional for event_callback
-        # and url_verification. ``verifier`` is supplied by the FastAPI
-        # ``Depends(get_signature_verifier)`` factory which is built lazily
-        # via @lru_cache — the handler is therefore protected even if no
-        # caller has explicitly invoked init_slack_service().
-        if request_type in ("event_callback", "url_verification"):
-            if not (x_slack_signature and x_slack_request_timestamp):
-                logger.warning("Missing Slack signature headers")
-                raise HTTPException(
-                    status_code=401,
-                    detail="Missing X-Slack-Signature or X-Slack-Request-Timestamp",
-                )
-            if not verifier.verify_signature(
-                x_slack_signature, x_slack_request_timestamp, body_str
-            ):
-                logger.warning("Signature verification failed")
-                raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
         # Handle URL verification challenge
         if request_type == "url_verification":
@@ -99,7 +98,7 @@ async def slack_events_endpoint(
         )
 
     except json.JSONDecodeError:
-        logger.error("Invalid JSON in request body")
+        logger.error("Invalid JSON in request body (post-signature)")
         return JSONResponse(content={"error": "Invalid JSON", "status": "error"}, status_code=400)
     except HTTPException:
         # Re-raise HTTP exceptions as-is

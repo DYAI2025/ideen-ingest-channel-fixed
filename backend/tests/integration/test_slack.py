@@ -120,26 +120,36 @@ def test_event_callback_with_valid_signature__200_and_processes():
 def test_unknown_request_type__400_error_envelope():
     """Ported from legacy ``test_error_handling_not_implemented``: an
     unrecognised request type (no ``type`` or unknown value) must produce
-    a 400 with ``{"status": "error", "error": ...}``. The signature gate
-    is bypassed here because it is type-gated to
-    ``event_callback`` / ``url_verification`` — the bogus
-    ``v0=test_signature`` in the legacy test was meaningless theatre.
+    a 400 with ``{"status": "error", "error": ...}``.
 
-    NOTE: we still need to init the verifier because the handler resolves
-    ``Depends(get_signature_verifier)`` BEFORE inspecting the request type.
-    Without an init call (and absent SLACK_SIGNING_SECRET), the factory
-    raises RuntimeError and the handler 500s instead of returning the
-    expected 400.
+    C4/I12 update: the handler now verifies the signature on the raw body
+    BEFORE parsing JSON or dispatching by type. This test therefore must
+    send a valid signature; the meaning of the assertion is still ``a
+    well-formed but unknown-typed payload returns 400``, just from inside
+    the authenticated path.
     """
     from src.main import app
     from src.services.slack_service import init_slack_service
 
     init_slack_service("test_secret")
 
-    client = TestClient(app)
-    response = client.post("/api/slack/events", json={"invalid": "data"})
+    body_obj = {"invalid": "data"}
+    body = json.dumps(body_obj).encode()
+    timestamp = str(int(time.time()))
+    sig = _sign("test_secret", timestamp, body)
 
-    assert response.status_code == 400
-    body = response.json()
-    assert body["status"] == "error"
-    assert "error" in body
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=body,
+        headers={
+            "X-Slack-Signature": sig,
+            "X-Slack-Request-Timestamp": timestamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    body_json = response.json()
+    assert body_json["status"] == "error"
+    assert "error" in body_json
