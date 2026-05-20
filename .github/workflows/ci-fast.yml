@@ -151,7 +151,11 @@ jobs:
           # diff-cover see ~120 reformatted lines as uncovered. Real test
           # coverage for these paths lands in Iter 0 (Baseline Freeze) and
           # later iterations. ADR-016 documents the rationale and sunset.
-          # The exclusion must be removed at the start of Iter 0.
+          #
+          # Sunset tracking: GitHub issue #8 ("Sunset: remove diff-cover
+          # --exclude on src/api+src/services"). The first Iter-0 PR
+          # MUST close this issue and delete the --exclude flags below.
+          # No silent forgetting.
           uv tool run diff-cover coverage.xml \
             --compare-branch=origin/main \
             --fail-under=80 \
