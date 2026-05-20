@@ -5,8 +5,19 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Coverage
+coverage.xml
+.coverage
+coverage/
+htmlcov/
 
 # Node
 node_modules/
@@ -14,6 +25,19 @@ dist/
 .nuxt/
 .cache/
 .vuepress/dist/
+build/
+.next/
+out/
+
+# Vector / DB scratch
+ruvector.db
+*.sqlite
+*.sqlite3
+
+# Local archives + dropped input docs
+*.zip
+PRJCT__save_*.md
+ideen_architektur_deliverables*/
 
 # Environment
 .env
@@ -21,7 +45,8 @@ dist/
 .env.*.local
 .env.production
 
-# IDE
+# IDE / agent scratch
+.claude/
 .vscode/
 .idea/
 *.swp
