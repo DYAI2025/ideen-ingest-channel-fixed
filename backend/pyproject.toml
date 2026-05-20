@@ -42,6 +42,7 @@ line_length = 100
 [dependency-groups]
 dev = [
     "aiofiles>=25.1.0",
+    "black>=26.5.1",
     "diff-cover>=9.0",
     "freezegun>=1.5",
     "httpx>=0.27",

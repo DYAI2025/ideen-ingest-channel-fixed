@@ -2,6 +2,13 @@ name: ci-fast
 
 # < 5 min budget. Mandatory gate on every PR (branch protection on main).
 # See docs/IMPLEMENTATION_PLAN_TDD.md §2.4 for the split.
+#
+# Action versions pinned to known-good major:
+# - astral-sh/setup-uv@v8  (latest at 2026-05; verified via gh api repos/astral-sh/setup-uv/releases/latest)
+# - actions/checkout@v4
+# - actions/setup-node@v4
+# - actions/upload-artifact@v4
+# - actions/download-artifact@v4
 
 on:
   pull_request:
@@ -18,16 +25,16 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v8
         with:
-          version: latest
           enable-cache: true
-      - name: backend lint (ruff + black --check)
+      - name: backend lint (black --check)
         working-directory: backend
         run: |
           uv sync --dev
-          uv run python -m ruff check . || true
-          uv run python -m black --check . || true
+          # ruff is intentionally not configured for the backend yet; add it
+          # in Iter 1 (Config & Contract) along with a ruff.toml.
+          uv run black --check src/ tests/
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -37,14 +44,14 @@ jobs:
         working-directory: frontend
         run: |
           npm ci
-          npm run lint || true
-          npx tsc --noEmit || true
+          npm run lint
+          npx tsc --noEmit
 
   unit:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
       - name: backend unit
@@ -66,7 +73,10 @@ jobs:
         working-directory: frontend
         run: |
           npm ci
-          npm test -- --coverage || true
+          # vitest exits 0 when there are no test files yet (preflight has
+          # only .gitkeep stubs). It will start producing real signal in
+          # Iter 0 once unit specs land.
+          npm test
 
   integration-fast:
     runs-on: ubuntu-22.04
@@ -88,7 +98,7 @@ jobs:
       DATABASE_URL: postgresql://ideen:ideen@localhost:5433/ideen_test
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
       - name: integration tests
@@ -101,7 +111,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
       - name: openapi snapshot drift check
@@ -109,7 +119,7 @@ jobs:
         run: |
           uv sync --dev
           # Iter 1 introduces scripts/export_openapi.py and the snapshot.
-          # Until then this step is a no-op placeholder.
+          # Until then this step is a no-op placeholder that exits 0.
           if [ -f scripts/export_openapi.py ]; then
             uv run python scripts/export_openapi.py --out /tmp/openapi.yaml
             diff -u ../docs/api/openapi.yaml /tmp/openapi.yaml
@@ -128,12 +138,21 @@ jobs:
         with:
           name: backend-coverage
           path: backend/
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v8
       - name: diff-cover gate
         working-directory: backend
         run: |
           uv tool install diff-cover
           # Threshold rises by iter; baseline 80% per plan §2.1.
+          #
+          # `--exclude` for src/api and src/services is a TEMPORARY one-PR
+          # measure: the Preflight-Fix PR applies a backend-wide black
+          # format-pass without adding tests, which would otherwise make
+          # diff-cover see ~120 reformatted lines as uncovered. Real test
+          # coverage for these paths lands in Iter 0 (Baseline Freeze) and
+          # later iterations. ADR-016 documents the rationale and sunset.
+          # The exclusion must be removed at the start of Iter 0.
           uv tool run diff-cover coverage.xml \
             --compare-branch=origin/main \
-            --fail-under=80 || true
+            --fail-under=80 \
+            --exclude '*src/api*' '*src/services*'
