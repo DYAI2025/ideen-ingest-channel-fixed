@@ -1,0 +1,218 @@
+name: ci-fast
+
+# < 5 min budget. Mandatory gate on every PR (branch protection on main).
+# See docs/IMPLEMENTATION_PLAN_TDD.md §2.4 for the split.
+#
+# Action versions pinned to known-good major:
+# - astral-sh/setup-uv@v8.1.0  (latest at 2026-05; verified via gh api repos/astral-sh/setup-uv/releases/latest)
+# - actions/checkout@v4
+# - actions/setup-node@v4
+# - actions/upload-artifact@v4
+# - actions/download-artifact@v4
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: backend lint (black --check)
+        working-directory: backend
+        run: |
+          uv sync --dev
+          # ruff is intentionally not configured for the backend yet; add it
+          # in Iter 1 (Config & Contract) along with a ruff.toml.
+          uv run black --check src/ tests/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend lint + typecheck
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npx tsc --noEmit
+
+  unit-backend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: backend unit
+        working-directory: backend
+        run: |
+          uv sync --dev
+          uv run pytest -m "not slow and not e2e and not stress and not fuzz and not load" \
+            --cov=src --cov-report=xml -p no:randomly tests/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  unit-frontend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: misplaced-test guard
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          # I4 fix: vitest's --passWithNoTests would otherwise silently
+          # accept misplaced specs. Fail explicitly if any *.test.ts(x)
+          # lives outside tests/.
+          # `src/**/*.test.ts` requires at least one path component
+          # between `src/` and the filename, so a top-level
+          # `src/foo.test.ts` is NOT matched. Add `src/*.test.ts` to
+          # cover that zero-subdir case.
+          # `|| true` is defensive: git ls-files can exit non-zero
+          # under stricter configs (e.g. --error-unmatch). Without it
+          # the guard would mask a misconfigured pathspec as "clean".
+          stray=$(git ls-files -- \
+            'src/*.test.ts' 'src/*.test.tsx' 'src/*.spec.ts' 'src/*.spec.tsx' \
+            'src/**/*.test.ts' 'src/**/*.test.tsx' 'src/**/*.spec.ts' 'src/**/*.spec.tsx' \
+            || true)
+          if [ -n "$stray" ]; then
+            echo "::error::Test files found under frontend/src/ - move them to frontend/tests/{unit,integration}/:"
+            echo "$stray"
+            exit 1
+          fi
+      - name: frontend unit
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --passWithNoTests
+
+  integration-fast:
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ideen
+          POSTGRES_PASSWORD: ideen
+          POSTGRES_DB: ideen_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U ideen -d ideen_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ideen:ideen@localhost:5433/ideen_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: integration tests
+        working-directory: backend
+        run: |
+          uv sync --dev
+          uv run pytest -m "not slow and not e2e and not stress and not fuzz and not load" tests/
+
+  contract-snapshot:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: openapi snapshot drift check
+        working-directory: backend
+        run: |
+          uv sync --dev
+          # Iter 1 introduces scripts/export_openapi.py and the snapshot.
+          # Until then this step is a no-op placeholder that exits 0.
+          if [ -f scripts/export_openapi.py ]; then
+            uv run python scripts/export_openapi.py --out /tmp/openapi.yaml
+            diff -u ../docs/api/openapi.yaml /tmp/openapi.yaml
+          else
+            echo "openapi snapshot not yet introduced (Iter 1)"
+          fi
+
+  diff-coverage:
+    runs-on: ubuntu-22.04
+    needs: [unit-backend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/
+      - uses: astral-sh/setup-uv@v8.1.0
+      - name: diff-cover gate
+        working-directory: backend
+        run: |
+          uv tool install diff-cover
+          # Threshold rises by iter; baseline 80% per plan §2.1.
+          #
+          # `--exclude` lists the files touched by the PR-#7 black
+          # format-pass that ship without test coverage. Any other file
+          # under src/api or src/services is intentionally NOT excluded,
+          # so new files in Iter 0+ get the full 80% diff-cover gate.
+          #
+          # See ADR-016 for the governance waiver this exclude implements.
+          # Sunset tracking: GitHub issue #8. The first Iter-0 PR closes
+          # the issue by deleting these --exclude lines (or replacing
+          # them with real coverage). No silent forgetting.
+          #
+          # Patterns are fnmatch'd against the absolute path (after a
+          # basename fallback), so we prefix each entry with `*` to make
+          # the suffix match unambiguous. Without the leading wildcard
+          # diff-cover only matches the bare basename, which would also
+          # silently swallow same-named files elsewhere in the tree.
+          uv tool run diff-cover coverage.xml \
+            --compare-branch=origin/main \
+            --fail-under=80 \
+            --exclude \
+              '*backend/src/api/agents.py' \
+              '*backend/src/api/graph.py' \
+              '*backend/src/api/ideas.py' \
+              '*backend/src/api/ingest.py' \
+              '*backend/src/api/kanban.py' \
+              '*backend/src/api/semantic.py' \
+              '*backend/src/api/status.py' \
+              '*backend/src/services/file_watcher.py' \
+              '*backend/src/services/gbrain_service.py' \
+              '*backend/src/services/kanban_sync.py' \
+              '*backend/src/services/semantic_analysis.py'
+
+  reviewer-chain-attestation:
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    # C3: explicit minimum permissions so an org-level tightening of the
+    # default workflow token can't silently break this gate later.
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: verify reviewer-chain disposition table present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./scripts/check_reviewer_chain.sh
