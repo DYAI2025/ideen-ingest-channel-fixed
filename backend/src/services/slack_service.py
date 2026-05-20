@@ -8,6 +8,7 @@ import time
 import hmac
 import hashlib
 import logging
+from functools import lru_cache
 from typing import Dict, Any, Optional
 from ..core.config import settings
 
@@ -193,5 +194,37 @@ def init_slack_service(signing_secret: Optional[str] = None) -> "SlackSignatureV
             )
 
     signature_verifier = SlackSignatureVerifier(secret)
+    # Keep the @lru_cache factory in sync with the explicit init call so the
+    # FastAPI Depends path returns the same verifier instance.
+    get_signature_verifier.cache_clear()
+    get_signature_verifier.cache_set = signature_verifier  # type: ignore[attr-defined]
     logger.info("Slack service initialized successfully")
     return signature_verifier
+
+
+@lru_cache(maxsize=1)
+def get_signature_verifier() -> SlackSignatureVerifier:
+    """C9: FastAPI dependency that lazily constructs the signature verifier
+    on first request, replacing the previous mutable module-level singleton.
+
+    The @lru_cache(maxsize=1) means subsequent requests reuse the same
+    verifier instance until ``get_signature_verifier.cache_clear()`` is
+    called (used by tests to swap secrets).
+
+    If ``init_slack_service()`` has already populated the module-global
+    ``signature_verifier``, prefer that — it lets the explicit init path
+    (e.g. test fixtures passing ``"test_secret"``) override the env-driven
+    construction.
+    """
+    if signature_verifier is not None:
+        return signature_verifier
+    secret = settings.slack_signing_secret or os.environ.get("SLACK_SIGNING_SECRET")
+    if not secret:
+        if os.environ.get("ALLOW_INSECURE_SLACK_FOR_TESTS") == "1":
+            secret = "test_secret"
+        else:
+            raise RuntimeError(
+                "SLACK_SIGNING_SECRET not set; set ALLOW_INSECURE_SLACK_FOR_TESTS=1 "
+                "for local-only test mode"
+            )
+    return SlackSignatureVerifier(secret)

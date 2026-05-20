@@ -3,14 +3,15 @@ Slack API Router
 Handles Slack webhook events and challenge responses
 """
 
-from fastapi import APIRouter, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
 from typing import Optional
 import time
 import logging
 
-from ..services import slack_service
 from ..services.slack_service import (
+    SlackSignatureVerifier,
+    get_signature_verifier,
     process_slack_message,
     process_file_event,
     validate_timestamp,
@@ -26,6 +27,7 @@ async def slack_events_endpoint(
     request: Request,
     x_slack_signature: Optional[str] = Header(None, alias="X-Slack-Signature"),
     x_slack_request_timestamp: Optional[str] = Header(None, alias="X-Slack-Request-Timestamp"),
+    verifier: SlackSignatureVerifier = Depends(get_signature_verifier),
 ):
     """
     Handle Slack webhook events
@@ -47,24 +49,19 @@ async def slack_events_endpoint(
         request_type = body_data.get("type")
         logger.info(f"Received Slack webhook request: {request_type}")
 
-        # C5: Signature verification is unconditional for event_callback and
-        # url_verification. Missing headers or an unconfigured verifier now
-        # short-circuit to 401/503 (previously: deny-on-mismatch only — missing
-        # headers fell through to the success path).
+        # C5/C9: Signature verification is unconditional for event_callback
+        # and url_verification. ``verifier`` is supplied by the FastAPI
+        # ``Depends(get_signature_verifier)`` factory which is built lazily
+        # via @lru_cache — the handler is therefore protected even if no
+        # caller has explicitly invoked init_slack_service().
         if request_type in ("event_callback", "url_verification"):
-            if slack_service.signature_verifier is None:
-                logger.error("Slack signature verifier not configured")
-                raise HTTPException(
-                    status_code=503,
-                    detail="Slack signature verifier not configured",
-                )
             if not (x_slack_signature and x_slack_request_timestamp):
                 logger.warning("Missing Slack signature headers")
                 raise HTTPException(
                     status_code=401,
                     detail="Missing X-Slack-Signature or X-Slack-Request-Timestamp",
                 )
-            if not slack_service.signature_verifier.verify_signature(
+            if not verifier.verify_signature(
                 x_slack_signature, x_slack_request_timestamp, body_str
             ):
                 logger.warning("Signature verification failed")
