@@ -39,12 +39,12 @@ class Settings(BaseSettings):
     graph_cache_ttl: int = 300  # 5 minutes
     max_nodes: int = 100
     max_depth: int = 3
-    
+
     # Slack Settings
     slack_signing_secret: Optional[str] = None
     slack_bot_token: Optional[str] = None
     slack_app_level_token: Optional[str] = None
-    
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

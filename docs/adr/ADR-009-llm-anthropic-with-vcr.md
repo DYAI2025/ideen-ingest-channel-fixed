@@ -1,9 +1,12 @@
 # ADR-009: LLM-Provider Anthropic, Tests via VCR-Recording
 
-- **Status:** Proposed
+- **Status:** Superseded by ADR-017
 - **Date:** 2026-05-20
+- **Superseded on:** 2026-05-20
 - **Decision Owner:** Tech-Lead
-- **Blockiert:** Iter 3 (Proposal Pipeline)
+- **Blockiert:** Iter 3 (Proposal Pipeline) — see ADR-017 for the active decision.
+
+> **Note:** This ADR is kept for historical context. ADR-017 (`ADR-017-llm-openrouter-supersedes-anthropic.md`) replaces the Anthropic-direct choice with OpenRouter as the default `LLMProvider`. The VCR-cassette test discipline described below carries over unchanged; only the provider implementation differs.
 
 ## Context
 

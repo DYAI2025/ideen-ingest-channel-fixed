@@ -37,3 +37,11 @@ Versionierung erfolgt vorerst nicht — Datum-Sortierung reicht für die Pre-Ite
   - I3: `scripts/check_reviewer_chain.sh` + `reviewer-chain-attestation`-Job in `ci-fast.yml`. Verlangt `Reviewer-Chain Findings-Disposition`-Tabelle in PR-Body, Issue-Kommentaren, Review-Bodies oder Review-Thread-Kommentaren. Distinct exit codes 0/1/2 für found/missing/infra. Lenient regex-Matching (case-insensitive, flexible separator). Explizite `permissions: pull-requests: read, contents: read`.
   - I4: Misplaced-Test-Guard-Step in `unit-frontend` blockt Test-Dateien unter `frontend/src/` (Top-Level + Nested). `set -euo pipefail` + `--`-anchored pathspec.
   - ADR-016 referenziert + Sunset-Issue #8 mit fnmatch-Pitfall-Kommentar dokumentiert.
+- **Iter-0 Launchpad (chore/iter-0-launchpad):**
+  - GitHub-Admin: 11 Iter-Milestones (`iter-0` … `iter-10`) angelegt; Labels `sunset`, `blocker`, `iter-0` … `iter-10` angelegt; Issue #8 erhält `blocker` + `sunset` + `iter-0`-Label + Milestone + Assignee.
+  - 12 Sunset-Tracker-Issues (#11–#22) eröffnet, je verlinkt mit zugehörigem Iter-Milestone.
+  - ADR-017 (`docs/adr/ADR-017-llm-openrouter-supersedes-anthropic.md`): OpenRouter ersetzt Anthropic als Default-LLM-Provider hinter `LLMProvider`-Interface (User-Direktive). VCR-Cassette-Disziplin aus ADR-009 bleibt; nur Provider-Implementierung ändert sich. Modellwahl via `OPENROUTER_MODEL` Runtime-Config.
+  - ADR-009 Status auf `Superseded by ADR-017`. ADR-README aktualisiert.
+  - `docs/IMPLEMENTATION_PLAN_TDD.md` D6-Tabelle + ADR-Tabelle auf OpenRouter umgestellt.
+  - Branch-Protection auf `main` aktiviert mit 7 required Checks (`lint`, `unit-backend`, `unit-frontend`, `integration-fast`, `contract-snapshot`, `diff-coverage`, `reviewer-chain-attestation`) + `enforce_admins: true`. Bypass für Owner-Merges deaktiviert. ADR-016 §2 vorgezogen aus Iter 10.
+  - `.env` bleibt lokal-only (gitignored). CI-Secret-Name dokumentiert als `OPENROUTER_API_KEY`.

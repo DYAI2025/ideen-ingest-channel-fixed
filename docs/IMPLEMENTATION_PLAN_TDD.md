@@ -41,7 +41,7 @@ Rejected mit Grund**.
 | D3  | Realtime-Mechanismus          | WebSocket · SSE · Postgres LISTEN/NOTIFY                              | **WebSocket; Postgres als Event-Source; Redis Streams für Fan-Out; Pub/Sub nur als Wake-Signal** | Tech-Lead | Iter 9         |
 | D4  | Auth-Modell                   | Token · OAuth · Slack Identity · Magic Link · Clerk/Auth.js           | **Iter 4a JWT + seeded Test-User; Iter 4b Magic-Link + Email-Provider; OAuth später**       | Product+Tech | Iter 4 |
 | D5  | Embedding-Provider            | Ollama · OpenAI · Voyage · sentence-transformers offline              | **sentence-transformers `all-MiniLM-L6-v2` offline für Tests *und* Default Prod**; Ollama nur lokal Dev, OpenAI optional | Tech-Lead | Iter 7         |
-| D6  | LLM-Provider für Agenten      | Ollama · OpenAI · Anthropic · keine                                   | **Anthropic + Provider-Interface; alle LLM-Calls in Tests via VCR-Recording**               | Tech-Lead | Iter 3         |
+| D6  | LLM-Provider für Agenten      | Ollama · OpenAI · Anthropic · OpenRouter · keine                      | **OpenRouter + Provider-Interface; alle LLM-Calls in Tests via VCR-Recording** (ADR-017 supersedes ADR-009; Anthropic-direkt historisch verworfen) | Tech-Lead | Iter 3         |
 | D7  | Deploy-Host (Primär)          | Railway · Fly · Render · VPS · Vercel+Railway Hybrid                  | **Railway-zentriert** (siehe Handoff §6)                                                     | Product | Iter 10        |
 | D8  | Obsidian-Vault-Betriebsmodell | lokales Volume · Git-Sync · WebDAV · Cloud-Sync                       | **Git-Sync mit Singleton-Vault-Writer-Worker** (auditierbar, mergebar, konfliktfrei)         | Product | Iter 6         |
 | D9  | Test-Stil                     | London · Chicago · Hybrid                                              | **Hybrid**: London an Service-Boundaries, Chicago an Domänenkern                              | Tech-Lead | jede Iter      |
@@ -758,7 +758,8 @@ CREATE TABLE semantic_edges (
 | 006 | ws-postgres-source-redis-streams-fanout | D3 (verschärft) |
 | 007 | auth-jwt-then-magic-link   | D4         |
 | 008 | embeddings-sentence-transformers-pinned | D5     |
-| 009 | llm-anthropic-with-vcr     | D6         |
+| 009 | llm-anthropic-with-vcr     | D6 — Superseded by ADR-017 (historical) |
+| 017 | llm-openrouter-supersedes-anthropic | D6 (active) |
 | 010 | deploy-railway-centric     | D7         |
 | 011 | obsidian-git-sync-singleton-writer | D8 (verschärft) |
 | 012 | tdd-hybrid-style           | D9         |
