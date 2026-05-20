@@ -99,11 +99,11 @@ async def startup_event():
 
     # Ensure directories exist
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Initialize Slack service
     init_slack_service()
     print("📱 Slack service initialized")
-    
+
     # Start file watcher (commented out for now to prevent import loops)
     # asyncio.create_task(file_watcher.watch_directory(settings.upload_dir))
 
