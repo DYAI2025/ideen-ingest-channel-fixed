@@ -73,10 +73,12 @@ jobs:
         working-directory: frontend
         run: |
           npm ci
-          # vitest exits 0 when there are no test files yet (preflight has
-          # only .gitkeep stubs). It will start producing real signal in
-          # Iter 0 once unit specs land.
-          npm test
+          # `--passWithNoTests` accommodates the preflight state (tests
+          # directories contain only .gitkeep stubs). Real specs land in
+          # Iter 0; the flag stays defensible because vitest still fails
+          # on actual test failures - it only short-circuits the
+          # "empty suite" case.
+          npm test -- --passWithNoTests
 
   integration-fast:
     runs-on: ubuntu-22.04
