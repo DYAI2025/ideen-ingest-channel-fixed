@@ -108,8 +108,12 @@ async def slack_events_endpoint(
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
-    except Exception as e:
-        logger.error(f"Internal error processing Slack webhook: {str(e)}")
+    except Exception:
+        # C8: log full trace server-side, return an opaque message to the
+        # caller. The previous implementation interpolated str(e) into the
+        # response body which leaked internal details to unauthenticated
+        # callers.
+        logger.exception("Internal error processing Slack webhook")
         return JSONResponse(
-            content={"error": f"Internal error: {str(e)}", "status": "error"}, status_code=500
+            content={"error": "Internal error", "status": "error"}, status_code=500
         )

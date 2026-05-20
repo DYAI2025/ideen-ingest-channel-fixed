@@ -46,3 +46,40 @@ def test_url_verification_without_signature__rejected_401():
     assert response.status_code == 401
     # Ensure the challenge value is NOT echoed back even partially.
     assert "secret_challenge" not in response.text
+
+
+def test_internal_error_response_does_not_leak_exception(monkeypatch):
+    """C8: a raised ValueError must be logged server-side but the response
+    body must not contain the exception's message text."""
+    import hashlib
+    import hmac
+
+    init_slack_service("test_secret")
+    # Compute a valid signature so the request reaches process_slack_message.
+    timestamp = str(int(__import__("time").time()))
+    body = '{"type":"event_callback","event":{"type":"message","text":"hi"}}'
+    sig_base = f"v0:{timestamp}:{body}".encode()
+    sig = "v0=" + hmac.new(b"test_secret", sig_base, hashlib.sha256).hexdigest()
+
+    def _boom(_event):
+        raise ValueError("SECRET INTERNAL DETAIL")
+
+    monkeypatch.setattr("src.api.slack.process_slack_message", _boom)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/slack/events",
+        content=body,
+        headers={
+            "X-Slack-Signature": sig,
+            "X-Slack-Request-Timestamp": timestamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 500, (
+        f"expected 500, got {response.status_code}: {response.text}"
+    )
+    assert "SECRET INTERNAL DETAIL" not in response.text, (
+        f"response leaked exception detail: {response.text}"
+    )
