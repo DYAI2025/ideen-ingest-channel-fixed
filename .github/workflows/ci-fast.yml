@@ -200,3 +200,14 @@ jobs:
               '*backend/src/services/gbrain_service.py' \
               '*backend/src/services/kanban_sync.py' \
               '*backend/src/services/semantic_analysis.py'
+
+  reviewer-chain-attestation:
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: verify reviewer-chain disposition table present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./scripts/check_reviewer_chain.sh
