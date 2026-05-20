@@ -14,13 +14,15 @@ Decisions binden den Stack. Jede ADR ist eine eigene Datei, nummeriert und unver
 | 006 | [ws-postgres-source-redis-streams-fanout](./ADR-006-ws-postgres-source-redis-streams-fanout.md) | Proposed | Iter 9          |
 | 007 | [auth-jwt-then-magic-link](./ADR-007-auth-jwt-then-magic-link.md)                       | Proposed | Iter 4a/4b      |
 | 008 | [embeddings-sentence-transformers-pinned](./ADR-008-embeddings-sentence-transformers-pinned.md) | Proposed | Iter 7          |
-| 009 | [llm-anthropic-with-vcr](./ADR-009-llm-anthropic-with-vcr.md)                           | Proposed | Iter 3          |
+| 009 | [llm-anthropic-with-vcr](./ADR-009-llm-anthropic-with-vcr.md)                           | Superseded by ADR-017 | Iter 3 (historical) |
 | 010 | [deploy-railway-centric](./ADR-010-deploy-railway-centric.md)                           | Proposed | Iter 10         |
 | 011 | [obsidian-git-sync-singleton-writer](./ADR-011-obsidian-git-sync-singleton-writer.md)   | Proposed | Iter 6          |
 | 012 | [tdd-hybrid-style](./ADR-012-tdd-hybrid-style.md)                                       | Proposed | jede Iter       |
 | 013 | [idempotency-client-uuid-24h-ttl](./ADR-013-idempotency-client-uuid-24h-ttl.md)         | Proposed | Iter 2          |
 | 014 | [tenancy-row-with-rls](./ADR-014-tenancy-row-with-rls.md)                               | Proposed | Iter 2+         |
 | 015 | [distributed-lock-postgres-advisory-redis-set-nx](./ADR-015-distributed-lock-postgres-advisory-redis-set-nx.md) | Proposed | Iter 5/6        |
+| 016 | [governance-waiver-preflight-no-review](./ADR-016-governance-waiver-preflight-no-review.md) | Accepted | one-shot (PR #5/#6) |
+| 017 | [llm-openrouter-supersedes-anthropic](./ADR-017-llm-openrouter-supersedes-anthropic.md)  | Accepted | Iter 3          |
 
 ADR-001 bis ADR-003 sind im Handoff-Dokument (`ideen_architektur_deliverables (1)/ideen_backend_architektur_handoff.md`) dokumentiert; ADR-004 bis ADR-015 in diesem Verzeichnis. Migration der ersten drei in eigene Dateien optional, sobald sie aktiv revidiert werden.
 
