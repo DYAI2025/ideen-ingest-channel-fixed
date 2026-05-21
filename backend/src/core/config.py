@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     slack_signing_secret: Optional[str] = None
     slack_bot_token: Optional[str] = None
     slack_app_level_token: Optional[str] = None
+    
+    # Database Settings
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "slack_integration"
+    db_user: str = "postgres"
+    db_password: str = "postgres"
 
     class Config:
         env_file = ".env"
