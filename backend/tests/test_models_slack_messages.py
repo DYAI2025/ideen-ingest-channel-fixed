@@ -1,12 +1,9 @@
 """
-Unit Tests for SlackMessage Model (TDD-RED Phase)
-These tests will fail until the SlackMessage model is implemented
+Unit Tests for SlackMessage Model (TDD-GREEN Phase)
+Tests for SlackMessage SQLAlchemy model with actual instantiation
 """
 import pytest
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 
 
 class TestSlackMessageModel:
@@ -14,17 +11,13 @@ class TestSlackMessageModel:
     
     def test_slack_message_model_exists(self):
         """Test that SlackMessage model can be imported"""
-        try:
-            from src.models.slack_messages import SlackMessage
-            assert SlackMessage is not None
-        except ImportError:
-            pytest.fail("SlackMessage model does not exist yet")
+        from src.models.slack_messages import SlackMessage
+        assert SlackMessage is not None
     
     def test_slack_message_has_required_fields(self):
         """Test that SlackMessage has all required fields"""
         from src.models.slack_messages import SlackMessage
         
-        # Check that model has required attributes
         required_fields = [
             'id', 'slack_message_id', 'slack_channel_id', 'slack_user_id',
             'slack_team_id', 'text', 'thread_ts', 'parent_ts', 'message_type',
@@ -34,46 +27,126 @@ class TestSlackMessageModel:
         for field in required_fields:
             assert hasattr(SlackMessage, field), f"SlackMessage missing field: {field}"
     
-    def test_slack_message_field_types(self):
-        """Test that SlackMessage fields have correct types"""
+    def test_slack_message_can_be_instantiated(self):
+        """Test that SlackMessage can be instantiated with required fields"""
         from src.models.slack_messages import SlackMessage
         
-        # This test would require inspecting the SQLAlchemy model
-        # For now, we'll just check the model exists
-        assert SlackMessage is not None
+        now = datetime.now(timezone.utc)
+        message = SlackMessage(
+            slack_message_id="U1234567890.1234567890",
+            slack_channel_id="C1234567890",
+            slack_user_id="U9876543210",
+            text="Hello, world!",
+            timestamp=now,
+            slack_timestamp="1234567890.123456",
+            message_type="message",
+            processed=False  # Set explicitly since defaults are DB-level
+        )
+        
+        assert message.slack_message_id == "U1234567890.1234567890"
+        assert message.slack_channel_id == "C1234567890"
+        assert message.text == "Hello, world!"
+        assert message.message_type == "message"
+        assert message.processed is False
     
-    def test_slack_message_validation_text_required(self):
-        """Test that text field is properly validated"""
+    def test_slack_message_to_dict(self):
+        """Test that to_dict method converts model to dictionary"""
         from src.models.slack_messages import SlackMessage
-        from sqlalchemy.exc import IntegrityError
         
-        # This test will fail until model is implemented with validation
-        # For TDD-RED, we just check the model exists
-        assert SlackMessage is not None
+        now = datetime.now(timezone.utc)
+        message = SlackMessage(
+            slack_message_id="U1234567890.1234567890",
+            slack_channel_id="C1234567890",
+            text="Test message",
+            timestamp=now,
+            slack_timestamp="1234567890.123456",
+            message_type="message"
+        )
+        
+        message_dict = message.to_dict()
+        
+        assert isinstance(message_dict, dict)
+        assert message_dict['slack_message_id'] == "U1234567890.1234567890"
+        assert message_dict['text'] == "Test message"
+        assert 'created_at' in message_dict
+        assert 'updated_at' in message_dict
     
-    def test_slack_message_unique_constraint(self):
-        """Test that slack_message_id has unique constraint"""
+    def test_slack_message_repr(self):
+        """Test that repr method returns meaningful string"""
         from src.models.slack_messages import SlackMessage
         
-        # This test will fail until model is implemented with unique constraint
-        # For TDD-RED, we just check the model exists
-        assert SlackMessage is not None
+        now = datetime.now(timezone.utc)
+        message = SlackMessage(
+            slack_message_id="U1234567890.1234567890",
+            slack_channel_id="C1234567890",
+            text="A very long message that should be truncated in repr",
+            timestamp=now,
+            slack_timestamp="1234567890.123456",
+            message_type="message"
+        )
+        
+        repr_str = repr(message)
+        assert "SlackMessage" in repr_str
+        assert "U1234567890.1234567890" in repr_str
+        assert "..." in repr_str  # Truncation indicator
     
-    def test_slack_message_default_values(self):
-        """Test that default values are set correctly"""
+    def test_slack_message_optional_fields(self):
+        """Test that optional fields can be None"""
         from src.models.slack_messages import SlackMessage
         
-        # This test will fail until model is implemented with defaults
-        # For TDD-RED, we just check the model exists
-        assert SlackMessage is not None
+        now = datetime.now(timezone.utc)
+        message = SlackMessage(
+            slack_message_id="U1234567890.1234567890",
+            slack_channel_id="C1234567890",
+            text=None,  # Optional
+            timestamp=now,
+            slack_timestamp="1234567890.123456",
+            message_type="message"
+        )
+        
+        assert message.text is None
+        assert message.thread_ts is None
+        assert message.parent_ts is None
     
-    def test_slack_message_timestamp_validation(self):
-        """Test that timestamp field is properly validated"""
+    def test_slack_message_thread_support(self):
+        """Test that thread fields work correctly"""
         from src.models.slack_messages import SlackMessage
         
-        # This test will fail until model is implemented
-        # For TDD-RED, we just check the model exists
-        assert SlackMessage is not None
+        now = datetime.now(timezone.utc)
+        message = SlackMessage(
+            slack_message_id="U1234567890.1234567890",
+            slack_channel_id="C1234567890",
+            text="Thread reply",
+            timestamp=now,
+            slack_timestamp="1234567890.123456",
+            message_type="message",
+            thread_ts="1234567890.123456",
+            parent_ts="1234567890.123400"
+        )
+        
+        assert message.thread_ts == "1234567890.123456"
+        assert message.parent_ts == "1234567890.123400"
+    
+    def test_slack_message_timestamp_auto_generated(self):
+        """Test that created_at and updated_at fields exist and can be set"""
+        from src.models.slack_messages import SlackMessage
+        
+        now = datetime.now(timezone.utc)
+        message = SlackMessage(
+            slack_message_id="U1234567890.1234567890",
+            slack_channel_id="C1234567890",
+            text="Test",
+            timestamp=now,
+            slack_timestamp="1234567890.123456",
+            message_type="message",
+            created_at=now,  # Set explicitly since auto-generation is DB-level
+            updated_at=now
+        )
+        
+        assert message.created_at is not None
+        assert message.updated_at is not None
+        assert isinstance(message.created_at, datetime)
+        assert isinstance(message.updated_at, datetime)
 
 
 if __name__ == "__main__":

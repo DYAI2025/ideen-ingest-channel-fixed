@@ -10,11 +10,9 @@ from alembic import context
 # Add src directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from src.models.base import Base
-from src.models.slack_messages import SlackMessage
-from src.models.slack_files import SlackFile
-from src.models.slack_channels import SlackChannel
-from src.models.slack_users import SlackUser
+# Import all models to ensure they're registered with Base.metadata
+from src.models import Base  # Import Base first
+from src.models import SlackMessage, SlackFile, SlackChannel, SlackUser
 from src.core.config import settings
 
 # this is the Alembic Config object, which provides
@@ -22,10 +20,7 @@ from src.core.config import settings
 config = context.config
 
 # Override database URL from environment variables
-database_url = os.getenv(
-    "DATABASE_URL",
-    f"postgresql://{settings.db_user if hasattr(settings, 'db_user') else 'user'}:{settings.db_password if hasattr(settings, 'db_password') else 'password'}@{settings.db_host if hasattr(settings, 'db_host') else 'localhost'}/{settings.db_name if hasattr(settings, 'db_name') else 'slack_integration'}"
-)
+database_url = os.getenv("DATABASE_URL", settings.database_url)
 config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
@@ -89,8 +84,7 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
-# Commented out to prevent automatic migration execution
-# if context.is_offline_mode():
-#     run_migrations_offline()
-# else:
-#     run_migrations_online()
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
