@@ -26,7 +26,7 @@ Diese ADR ersetzt ADR-009 als Quelle-der-Wahrheit für die LLM-Provider-Entschei
 - API-Endpoint: `https://openrouter.ai/api/v1/chat/completions` (OpenAI-kompatibel).
 - API-Key: Env-Var `OPENROUTER_API_KEY`. Wert lebt lokal in `.env` (gitignored) und in CI-Repo-Secrets. Nie in Code, Logs, oder Commits.
 - Default-Modell für Proposal-Generierung: konfigurierbar via `OPENROUTER_MODEL` (Standard: ein qualitätsstarkes Modell wie `anthropic/claude-opus-4` oder `openai/gpt-4o`; Iter 3 PR setzt den konkreten Default).
-- VCR-Cassette-Strategie aus ADR-009 bleibt: alle LLM-Calls in Tests via `vcrpy` aufgenommen unter `backend/tests/fixtures/cassettes/llm/`. Cassettes werden einmal mit echtem Key generiert, dann ins Repo committed (Wire-Verkehr enthält keinen Klartext-Key — vcrpy filtert den Authorization-Header standardmäßig oder per Konfiguration).
+- VCR-Cassette-Strategie aus ADR-009 bleibt: alle LLM-Calls in Tests via `vcrpy` aufgenommen unter `backend/tests/fixtures/cassettes/llm/`. Cassettes werden einmal mit echtem Key generiert und dann ins Repo committed **erst nachdem** explizite Secret-Filterung aktiv ist (mindestens `Authorization`-Header via `filter_headers` konfigurieren, bevor irgendein Recording startet), damit kein `OPENROUTER_API_KEY` im Fixture landet.
 - Provider-Interface (`LLMProvider`) unverändert: `OpenRouterProvider`, `MockProvider` (Unit-Tests), optional `AnthropicProvider` und `OpenAIProvider` als Fallbacks.
 
 ## Consequences
