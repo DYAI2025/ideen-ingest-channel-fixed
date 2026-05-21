@@ -46,7 +46,9 @@ ideen_architektur_deliverables*/
 .env.production
 
 # IDE / agent scratch
-.claude/
+# Ignore Claude-Code scratch state but keep team-wide slash-commands.
+.claude/*
+!.claude/commands/
 .vscode/
 .idea/
 *.swp
