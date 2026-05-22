@@ -20,7 +20,7 @@ interface GraphEdge {
   type: string
 }
 
-export default function SimpleGraph({ apiUrl = '/api/graph' }: SimpleGraphProps) {
+export default function SimpleGraph({ apiUrl = 'http://localhost:8001/api' }: SimpleGraphProps) {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [loading, setLoading] = useState(true)
@@ -31,9 +31,9 @@ export default function SimpleGraph({ apiUrl = '/api/graph' }: SimpleGraphProps)
     try {
       setLoading(true)
       setError(null)
-      
-      const response = await axios.get(`${apiUrl}/full-graph`)
-      
+
+      const response = await axios.get(`${apiUrl}/graph/full-graph`)
+
       if (response.data.status === 'success') {
         const data = response.data.graph
         setNodes(data.nodes)

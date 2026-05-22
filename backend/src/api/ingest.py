@@ -31,17 +31,18 @@ async def upload_file(file: UploadFile = File(...), phase: str = "seed", auto_im
         # Validate file extension
         if file.filename:
             file_ext = Path(file.filename).suffix.lower()
-            if file_ext not in settings.allowed_extensions:
+            allowed_exts = [ext.strip() for ext in settings.allowed_extensions.split(',')]
+            if file_ext not in allowed_exts:
                 raise HTTPException(
                     status_code=400,
                     detail=f"File extension {file_ext} not allowed. Allowed: {settings.allowed_extensions}",
                 )
 
         # Create upload directory if needed
-        settings.upload_dir.mkdir(parents=True, exist_ok=True)
+        settings.upload_dir.expanduser().mkdir(parents=True, exist_ok=True)
 
         # Save file
-        file_path = settings.upload_dir / file.filename
+        file_path = settings.upload_dir.expanduser() / file.filename
         async with aiofiles.open(file_path, "wb") as f:
             content = await file.read()
             await f.write(content)
@@ -95,7 +96,7 @@ async def list_uploaded_files():
     """
     try:
         files = []
-        for file_path in settings.upload_dir.iterdir():
+        for file_path in settings.upload_dir.expanduser().iterdir():
             if file_path.is_file():
                 stat = file_path.stat()
                 files.append(
@@ -109,7 +110,7 @@ async def list_uploaded_files():
                 )
 
         return JSONResponse(
-            content={"files": files, "count": len(files), "upload_dir": str(settings.upload_dir)}
+            content={"files": files, "count": len(files), "upload_dir": str(settings.upload_dir.expanduser())}
         )
 
     except Exception as e:
@@ -122,7 +123,7 @@ async def delete_file(filename: str):
     Delete a file from the upload directory
     """
     try:
-        file_path = settings.upload_dir / filename
+        file_path = settings.upload_dir.expanduser() / filename
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")
 

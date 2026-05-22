@@ -38,7 +38,7 @@ function App() {
   const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
   const API_BASE_URL = configuredApiUrl
     ? (configuredApiUrl.endsWith('/api') ? configuredApiUrl : `${configuredApiUrl}/api`)
-    : 'https://insightful-curiosity-production-5e41.up.railway.app/api'
+    : 'http://localhost:8001/api'
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     setLoading(true)
@@ -48,7 +48,7 @@ function App() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('phase', selectedPhase)
-      formData.append('auto_import', 'true')
+      formData.append('auto_import', 'false')
 
       try {
         const response = await axios.post(`${API_BASE_URL}/ingest/upload`, formData, {
@@ -273,9 +273,9 @@ function App() {
               <p className="no-ideas">No ideas found</p>
             )
           ) : viewMode === 'simple-graph' ? (
-            <SimpleGraph apiUrl={`${API_BASE_URL}/graph`} />
+            <SimpleGraph apiUrl={API_BASE_URL} />
           ) : viewMode === 'obsidian' ? (
-            <ObsidianGraph />
+            <ObsidianGraph apiUrl={API_BASE_URL.replace('/api', '')} />
           ) : (
             <KanbanBoard />
           )}

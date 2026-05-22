@@ -80,7 +80,7 @@ function KanbanBoard() {
   const [syncing, setSyncing] = useState(false)
 
   // Use local backend URL
-  const API_BASE_URL = 'http://localhost:8002/api'
+  const API_BASE_URL = 'http://localhost:8001/api'
 
   // Load kanban data on mount
   useEffect(() => {

@@ -94,11 +94,11 @@ kanban_sync_service = KanbanSyncService()
 async def startup_event():
     """Start-up event handler"""
     print("🚀 Ideen Ingest Channel starting up...")
-    print(f"📂 Upload directory: {settings.upload_dir}")
+    print(f"📂 Upload directory: {settings.upload_dir.expanduser()}")
     print(f"🧠 GBrain source: {settings.gbrain_source}")
 
     # Ensure directories exist
-    settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    settings.upload_dir.expanduser().mkdir(parents=True, exist_ok=True)
 
     # Initialize Slack service. Fail-closed (C7): if SLACK_SIGNING_SECRET is
     # absent and ALLOW_INSECURE_SLACK_FOR_TESTS is not set, this raises and
@@ -121,4 +121,4 @@ async def shutdown_event():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="info")
+    uvicorn.run("src.main:app", host=settings.host, port=settings.port, reload=True, log_level="info")

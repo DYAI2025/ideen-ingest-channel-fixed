@@ -6,7 +6,7 @@ interface ObsidianGraphProps {
   apiUrl?: string
 }
 
-export default function ObsidianGraph({ apiUrl = 'http://localhost:3006' }: ObsidianGraphProps) {
+export default function ObsidianGraph({ apiUrl = 'http://localhost:8001' }: ObsidianGraphProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [graphData, setGraphData] = useState<any>(null)
@@ -15,7 +15,7 @@ export default function ObsidianGraph({ apiUrl = 'http://localhost:3006' }: Obsi
     const loadGraph = async () => {
       try {
         setLoading(true)
-        const response = await axios.get(`${apiUrl}/api/graph/files`)
+        const response = await axios.get(`${apiUrl}/api/graph/full-graph`)
         setGraphData(response.data)
       // error object is intentionally swallowed; surfaced via UI banner only.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -40,7 +40,7 @@ export default function ObsidianGraph({ apiUrl = 'http://localhost:3006' }: Obsi
         <div className="obsidian-stats">
           <span>Nodes: {graphData.graph.nodes.length}</span>
           <span>Edges: {graphData.graph.edges.length}</span>
-          <span>Ideas: {graphData.metadata.total_ideas}</span>
+          <span>Total: {graphData.metadata.node_count}</span>
         </div>
       </div>
       <div className="obsidian-info">

@@ -18,12 +18,12 @@ class Settings(BaseSettings):
 
     # Server Settings
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 9999
 
     # File Upload Settings
     upload_dir: Path = Path.home() / "ideen-growth-system" / "seeds"
     max_file_size: int = 10 * 1024 * 1024  # 10MB
-    allowed_extensions: List[str] = [".md", ".txt", ".json", ".yaml", ".yml"]
+    allowed_extensions: str = ".md,.txt,.json,.yaml,.yml"
 
     # GBrain Settings
     gbrain_source: str = "ideas"
@@ -45,9 +45,22 @@ class Settings(BaseSettings):
     slack_bot_token: Optional[str] = None
     slack_app_level_token: Optional[str] = None
 
+    # Database Settings
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "slack_integration"
+    db_user: str = "postgres"
+    db_password: str = "postgres"
+
+    @property
+    def database_url(self) -> str:
+        """Construct PostgreSQL database URL"""
+        return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "allow"  # Allow extra fields
 
 
 settings = Settings()
