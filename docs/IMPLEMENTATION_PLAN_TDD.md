@@ -289,7 +289,7 @@ CREATE UNIQUE INDEX events_idem_idx
 
 CREATE TABLE projection_state (
   name TEXT PRIMARY KEY,
-  last_event_id BIGINT NOT NULL,
+  last_event_id UUID NOT NULL,
   schema_version INT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -634,13 +634,13 @@ CREATE TABLE semantic_edges (
 - `backend/tests/unit/test_slack_sig.py::test_fuzz_signature__never_accepts_random` (`@pytest.mark.fuzz`, hypothesis)
 - `backend/tests/unit/test_slack.py::test_duplicate_event_id__deduped`
 - `backend/tests/integration/test_slack.py::test_slash_idea__creates_chat_message_event`
-- `backend/tests/integration/test_slack.py::test_handler_returns_200_before_processing` *(Design-Test statt Wallclock)*
+- `backend/tests/integration/test_slack.py::test_handler_enqueues_before_returning_200` *(Design-Test: durable handoff before ack)*
 
 **Schema-Add:** `chat_messages` aus Handoff §7; `slack_event_dedup(event_id PK, seen_at)` für Idempotenz.
 
 **Green:**
 
-- `slack-ingest` Service, Signature-Verify, 3s-Ack-Pattern (`return JSONResponse(200)` bevor arq-Job enqueued).
+- `slack-ingest` Service mit Signature-Verify und 3s-Ack-Pattern: Event zuerst dedupe+persist/enqueue (durable handoff), danach `return JSONResponse(200)`.
 - arq-Job verarbeitet, schreibt `chat.message.received`-Event.
 - Slack-Thread-TS → Idea-ID-Mapping in `chat_messages.linked_entity_id`.
 - OAuth-Install-Flow als separater Endpoint `/api/slack/oauth/callback`.
